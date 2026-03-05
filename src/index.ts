@@ -3,6 +3,8 @@ import { GitHubCache } from "./github";
 import { Storage } from "./storage";
 import { updateRoutes } from "./routes/update";
 import { downloadRoutes } from "./routes/download";
+import { dashboardRoutes } from "./routes/dashboard";
+import { apiRoutes } from "./routes/api";
 
 const github = new GitHubCache();
 const storage = new Storage();
@@ -15,8 +17,10 @@ await github.refresh().catch((err) => {
 const port = Number(Bun.env.PORT) || 3000;
 
 const app = new Elysia()
+  .use(dashboardRoutes(github, storage))
   .use(updateRoutes(github, storage))
   .use(downloadRoutes(github, storage))
+  .use(apiRoutes(github, storage))
   .get("/health", async () => {
     const release = await github.getLatest();
     const files = await storage.listFiles();

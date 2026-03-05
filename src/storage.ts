@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, stat, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -7,6 +7,7 @@ export interface FileMetadata {
   path: string;
   size: number;
   sha512: string;
+  platform: string | null;
 }
 
 // Platform-specific file patterns
@@ -43,6 +44,7 @@ export class Storage {
         path: filePath,
         size: fileStat.size,
         sha512,
+        platform: this.getPlatform(filename),
       };
 
       this.metadataCache.set(filename, metadata);
@@ -78,6 +80,35 @@ export class Storage {
     } catch {
       return [];
     }
+  }
+
+  async getDetailedList(): Promise<FileMetadata[]> {
+    const files = await this.listFiles();
+    const results: FileMetadata[] = [];
+    for (const f of files) {
+      const meta = await this.getFileMetadata(f);
+      if (meta) results.push(meta);
+    }
+    return results;
+  }
+
+  async deleteFile(filename: string): Promise<boolean> {
+    if (filename.includes("..") || filename.includes("/")) return false;
+    const filePath = join(this.dir, filename);
+    try {
+      await unlink(filePath);
+      this.metadataCache.delete(filename);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  getPlatform(filename: string): string | null {
+    for (const [platform, patterns] of Object.entries(PLATFORM_PATTERNS)) {
+      if (patterns.some((p) => p.test(filename))) return platform;
+    }
+    return null;
   }
 
   /** Clear metadata cache (call when new files are added) */

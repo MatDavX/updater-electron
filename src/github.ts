@@ -86,4 +86,47 @@ export class GitHubCache {
 
     console.log(`[github] Cached release v${version} (${release.assets.length} assets)`);
   }
+
+  async createRelease(tag: string, name: string, body: string): Promise<{ html_url: string }> {
+    const url = `https://api.github.com/repos/${this.account}/${this.repo}/releases`;
+    const headers: Record<string, string> = {
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "electron-update-server",
+      "Content-Type": "application/json",
+    };
+
+    if (this.token) {
+      headers.Authorization = `token ${this.token}`;
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        tag_name: tag,
+        name,
+        body,
+        draft: false,
+        prerelease: false,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`GitHub API returned ${res.status}: ${await res.text()}`);
+    }
+
+    return res.json();
+  }
+
+  getLastFetchTime(): number {
+    return this.lastFetch;
+  }
+
+  getTTL(): number {
+    return this.ttl;
+  }
+
+  getRepoUrl(): string {
+    return `https://github.com/${this.account}/${this.repo}`;
+  }
 }
