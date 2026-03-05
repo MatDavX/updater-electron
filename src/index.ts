@@ -43,6 +43,6 @@ const app = new Elysia()
       return { status: "error", message };
     }
   })
-  .listen({ port, hostname: "0.0.0.0" });
+  .listen(3000);
 
 console.log(`🚀 Update server running at http://${app.server?.hostname}:${app.server?.port}`);
