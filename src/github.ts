@@ -34,7 +34,7 @@ export class GitHubCache {
     this.ttl = Number(Bun.env.CACHE_TTL) || 900_000; // 15 min
 
     if (!this.account || !this.repo) {
-      throw new Error("GITHUB_ACCOUNT and GITHUB_REPO are required");
+      console.error("WARNING: GITHUB_ACCOUNT and GITHUB_REPO are required. Server will start but GitHub features won't work.");
     }
   }
 
