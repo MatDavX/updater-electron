@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { join } from "node:path";
+import { resolve } from "node:path";
 import type { GitHubCache } from "../github";
 import type { Storage } from "../storage";
 
@@ -8,13 +8,12 @@ export function downloadRoutes(github: GitHubCache, storage: Storage) {
     .get("/download/:filename", async ({ params, set }) => {
       const { filename } = params;
 
-      // Prevent path traversal
-      if (filename.includes("..") || filename.includes("/")) {
+      const filePath = storage.resolveSafe(filename);
+      if (!filePath) {
         set.status = 400;
         return "Invalid filename";
       }
 
-      const filePath = join(storage.getDir(), filename);
       const file = Bun.file(filePath);
 
       if (!(await file.exists())) {
@@ -43,7 +42,6 @@ export function downloadRoutes(github: GitHubCache, storage: Storage) {
         return `No ${platform} binary found for v${release.version}`;
       }
 
-      // Redirect to the actual download route
       set.redirect = `/download/${file.filename}`;
     });
 }

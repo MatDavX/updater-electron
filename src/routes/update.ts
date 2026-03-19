@@ -1,14 +1,8 @@
 import { Elysia } from "elysia";
 import { stringify } from "yaml";
-import type { GitHubCache } from "../github";
+import type { GitHubCache, CachedRelease } from "../github";
 import type { Storage } from "../storage";
-
-// electron-updater expects these exact file patterns per platform
-const PLATFORM_CONFIG: Record<string, { yamlFile: string; extensions: string[] }> = {
-  win32: { yamlFile: "latest.yml", extensions: [".exe"] },
-  darwin: { yamlFile: "latest-mac.yml", extensions: [".zip", ".dmg"] },
-  linux: { yamlFile: "latest-linux.yml", extensions: [".AppImage", ".deb", ".rpm"] },
-};
+import { getActiveVersion } from "../version-control";
 
 function buildYaml(
   version: string,
@@ -17,11 +11,21 @@ function buildYaml(
   sha512: string,
   size: number,
   notes?: string,
+  blockMapSize?: number,
 ) {
+  const fileEntry: Record<string, unknown> = {
+    url: `download/${filename}`,
+    sha512,
+    size,
+  };
+  if (blockMapSize) {
+    fileEntry.blockMapSize = blockMapSize;
+  }
+
   const data: Record<string, unknown> = {
     version,
-    files: [{ url: filename, sha512, size }],
-    path: filename,
+    files: [fileEntry],
+    path: `download/${filename}`,
     sha512,
     releaseDate,
   };
@@ -50,7 +54,15 @@ async function handleYaml(
   storage: Storage,
   set: { status?: number; headers: Record<string, string> },
 ) {
-  const release = await github.getLatest();
+  const pinnedVersion = getActiveVersion();
+  let release: CachedRelease | null;
+
+  if (pinnedVersion) {
+    release = await github.getRelease(pinnedVersion);
+  } else {
+    release = await github.getLatest();
+  }
+
   if (!release) {
     set.status = 404;
     return "No release found";
@@ -62,6 +74,8 @@ async function handleYaml(
     return `No ${platform} binary found for v${release.version}`;
   }
 
+  const blockMapSize = await storage.getBlockmapSize(file.filename);
+
   const yaml = buildYaml(
     release.version,
     release.releaseDate,
@@ -69,6 +83,7 @@ async function handleYaml(
     file.sha512,
     file.size,
     release.notes,
+    blockMapSize ?? undefined,
   );
 
   set.headers["content-type"] = "text/yaml";

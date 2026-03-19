@@ -1,5 +1,5 @@
 import { readdir, stat, unlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 
 export interface FileMetadata {
@@ -10,7 +10,6 @@ export interface FileMetadata {
   platform: string | null;
 }
 
-// Platform-specific file patterns
 const PLATFORM_PATTERNS: Record<string, RegExp[]> = {
   win32: [/\.exe$/i, /\.msi$/i, /\.nupkg$/i],
   darwin: [/\.dmg$/i, /\.zip$/i],
@@ -29,11 +28,20 @@ export class Storage {
     return this.dir;
   }
 
+  resolveSafe(filename: string): string | null {
+    if (filename.includes("..") || filename.includes("\\")) return null;
+    const resolved = resolve(this.dir, filename);
+    if (!resolved.startsWith(this.dir)) return null;
+    return resolved;
+  }
+
   async getFileMetadata(filename: string): Promise<FileMetadata | null> {
     const cached = this.metadataCache.get(filename);
     if (cached) return cached;
 
-    const filePath = join(this.dir, filename);
+    const filePath = this.resolveSafe(filename);
+    if (!filePath) return null;
+
     try {
       const fileStat = await stat(filePath);
       if (!fileStat.isFile()) return null;
@@ -60,7 +68,6 @@ export class Storage {
 
     try {
       const files = await readdir(this.dir);
-      // Find files matching the version and platform pattern
       const match = files.find((f) => {
         const hasVersion = f.includes(version);
         const matchesPlatform = patterns.some((p) => p.test(f));
@@ -69,6 +76,20 @@ export class Storage {
 
       if (!match) return null;
       return this.getFileMetadata(match);
+    } catch {
+      return null;
+    }
+  }
+
+  async getBlockmapSize(binaryFilename: string): Promise<number | null> {
+    const blockmapFilename = `${binaryFilename}.blockmap`;
+    const filePath = this.resolveSafe(blockmapFilename);
+    if (!filePath) return null;
+
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) return null;
+      return fileStat.size;
     } catch {
       return null;
     }
@@ -93,8 +114,9 @@ export class Storage {
   }
 
   async deleteFile(filename: string): Promise<boolean> {
-    if (filename.includes("..") || filename.includes("/")) return false;
-    const filePath = join(this.dir, filename);
+    const filePath = this.resolveSafe(filename);
+    if (!filePath) return false;
+
     try {
       await unlink(filePath);
       this.metadataCache.delete(filename);
@@ -104,6 +126,14 @@ export class Storage {
     }
   }
 
+  async validateUpload(filePath: string, expectedSha512?: string): Promise<{ valid: boolean; sha512: string }> {
+    const sha512 = await this.computeSha512(filePath);
+    if (expectedSha512 && sha512 !== expectedSha512) {
+      return { valid: false, sha512 };
+    }
+    return { valid: true, sha512 };
+  }
+
   getPlatform(filename: string): string | null {
     for (const [platform, patterns] of Object.entries(PLATFORM_PATTERNS)) {
       if (patterns.some((p) => p.test(filename))) return platform;
@@ -111,7 +141,6 @@ export class Storage {
     return null;
   }
 
-  /** Clear metadata cache (call when new files are added) */
   clearCache(): void {
     this.metadataCache.clear();
   }
