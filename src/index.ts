@@ -54,6 +54,6 @@ const app = new Elysia()
       sseClients: sseBroker.count,
     };
   })
-  .listen(port);
+  .listen({ port, maxRequestBodySize: 1024 * 1024 * 512 });
 
 console.log(`Update server running at http://${app.server?.hostname}:${app.server?.port}`);

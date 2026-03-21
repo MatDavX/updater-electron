@@ -1,4 +1,4 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import type { GitHubCache } from "../github";
 import type { Storage } from "../storage";
 import { authGuard } from "../middleware/auth";
@@ -7,7 +7,7 @@ import { getActiveVersion, setActiveVersion } from "../version-control";
 
 const ALLOWED_EXTENSIONS = [
   ".exe", ".msi", ".dmg", ".zip", ".AppImage",
-  ".deb", ".rpm", ".snap", ".blockmap",
+  ".deb", ".rpm", ".snap", ".blockmap", ".nupkg",
 ];
 
 export function apiRoutes(github: GitHubCache, storage: Storage) {
@@ -23,11 +23,10 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       }));
     })
     .post("/upload", async ({ body, set }) => {
-      const formData = body as Record<string, unknown>;
-      const file = formData.file;
-      const expectedSha512 = formData.sha512 as string | undefined;
+      const file = body.file;
+      const expectedSha512 = body.sha512;
 
-      if (!file || !(file instanceof File)) {
+      if (!file) {
         set.status = 400;
         return { error: "No file provided" };
       }
@@ -47,7 +46,7 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       const buffer = await file.arrayBuffer();
       await Bun.write(filePath, buffer);
 
-      const validation = await storage.validateUpload(filePath, expectedSha512);
+      const validation = await storage.validateUpload(filePath, expectedSha512 || undefined);
       if (!validation.valid) {
         await Bun.file(filePath).exists() && (await import("node:fs/promises")).unlink(filePath);
         set.status = 422;
@@ -67,6 +66,42 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       });
 
       return { status: "uploaded", filename: file.name, size: file.size, sha512: validation.sha512 };
+    }, {
+      body: t.Object({
+        file: t.File({ maxSize: "500m" }),
+        sha512: t.Optional(t.String()),
+      }),
+    })
+    .put("/upload/:filename", async ({ params, body, set }) => {
+      const { filename } = params;
+
+      const ext = filename.substring(filename.lastIndexOf("."));
+      if (!ALLOWED_EXTENSIONS.includes(ext.toLowerCase())) {
+        set.status = 400;
+        return { error: `Extension ${ext} not allowed` };
+      }
+
+      const filePath = storage.resolveSafe(filename);
+      if (!filePath) {
+        set.status = 400;
+        return { error: "Invalid filename" };
+      }
+
+      const buffer = body as ArrayBuffer;
+      await Bun.write(filePath, buffer);
+
+      const validation = await storage.validateUpload(filePath);
+      storage.clearCache();
+
+      sseBroker.broadcast("upload", {
+        filename,
+        size: buffer.byteLength,
+        sha512: validation.sha512,
+      });
+
+      return { status: "uploaded", filename, size: buffer.byteLength, sha512: validation.sha512 };
+    }, {
+      parse: "arrayBuffer",
     })
     .delete("/files/:filename", async ({ params, set }) => {
       const { filename } = params;
