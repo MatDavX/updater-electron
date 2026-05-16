@@ -1,8 +1,14 @@
 import { Elysia } from "elysia";
-import { stringify } from "yaml";
+import { parse, stringify } from "yaml";
 import type { GitHubCache, CachedRelease } from "../github";
 import type { Storage } from "../storage";
 import { getActiveVersion } from "../version-control";
+
+const PLATFORM_MANIFESTS: Record<string, string> = {
+  win32: "latest.yml",
+  darwin: "latest-mac.yml",
+  linux: "latest-linux.yml",
+};
 
 function buildYaml(
   version: string,
@@ -52,7 +58,7 @@ async function handleYaml(
   platform: string,
   github: GitHubCache,
   storage: Storage,
-  set: { status?: number; headers: Record<string, string> },
+  set: { status?: number | string; headers: Record<string, string | number> },
 ) {
   const pinnedVersion = getActiveVersion();
   let release: CachedRelease | null;
@@ -69,24 +75,69 @@ async function handleYaml(
   }
 
   const file = await storage.findPlatformFile(platform, release.version);
-  if (!file) {
-    set.status = 404;
-    return `No ${platform} binary found for v${release.version}`;
+  if (file) {
+    const blockMapSize = await storage.getBlockmapSize(file.filename);
+
+    const yaml = buildYaml(
+      release.version,
+      release.releaseDate,
+      file.filename,
+      file.sha512,
+      file.size,
+      release.notes,
+      blockMapSize ?? undefined,
+    );
+
+    set.headers["content-type"] = "text/yaml";
+    set.headers["cache-control"] = "no-cache";
+    return yaml;
   }
 
-  const blockMapSize = await storage.getBlockmapSize(file.filename);
+  const manifestName = PLATFORM_MANIFESTS[platform];
+  const manifestAsset = manifestName ? github.findAsset(release, manifestName) : null;
 
-  const yaml = buildYaml(
-    release.version,
-    release.releaseDate,
-    file.filename,
-    file.sha512,
-    file.size,
-    release.notes,
-    blockMapSize ?? undefined,
-  );
+  if (!manifestAsset) {
+    set.status = 404;
+    return `No ${platform} binary or ${manifestName} asset found for v${release.version}`;
+  }
 
-  set.headers["content-type"] = "text/yaml";
-  set.headers["cache-control"] = "no-cache";
-  return yaml;
+  try {
+    const yaml = rewriteManifestDownloadPaths(await github.fetchAssetText(manifestAsset));
+
+    set.headers["content-type"] = "text/yaml";
+    set.headers["cache-control"] = "no-cache";
+    return yaml;
+  } catch (err: unknown) {
+    set.status = 502;
+    const message = err instanceof Error ? err.message : "Unknown GitHub asset error";
+    return `Failed to load ${manifestName} from GitHub release v${release.version}: ${message}`;
+  }
+}
+
+function rewriteManifestDownloadPaths(yaml: string): string {
+  const data = parse(yaml) as Record<string, unknown>;
+
+  if (Array.isArray(data.files)) {
+    data.files = data.files.map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      const file = entry as Record<string, unknown>;
+      if (typeof file.url === "string") {
+        file.url = `download/${getAssetFilename(file.url)}`;
+      }
+      return file;
+    });
+  }
+
+  if (typeof data.path === "string") {
+    data.path = `download/${getAssetFilename(data.path)}`;
+  }
+
+  return stringify(data);
+}
+
+function getAssetFilename(value: string): string {
+  const withoutQuery = value.split("?")[0];
+  const decoded = decodeURIComponent(withoutQuery);
+  const filename = decoded.split("/").pop();
+  return filename || value;
 }

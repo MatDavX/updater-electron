@@ -1,4 +1,5 @@
-interface GitHubAsset {
+export interface GitHubAsset {
+  url: string;
   name: string;
   browser_download_url: string;
   size: number;
@@ -124,6 +125,41 @@ export class GitHubCache {
     }
 
     return res.json();
+  }
+
+  findAsset(release: CachedRelease, filename: string): GitHubAsset | null {
+    return release.assets.find((asset) => asset.name === filename) ?? null;
+  }
+
+  findPlatformAsset(release: CachedRelease, platform: string): GitHubAsset | null {
+    const patterns: Record<string, RegExp[]> = {
+      win32: [/\.exe$/i, /\.msi$/i, /\.nupkg$/i],
+      darwin: [/\.dmg$/i, /\.zip$/i],
+      linux: [/\.AppImage$/i, /\.deb$/i, /\.rpm$/i, /\.snap$/i],
+    };
+    const platformPatterns = patterns[platform];
+    if (!platformPatterns) return null;
+
+    return release.assets.find((asset) =>
+      platformPatterns.some((pattern) => pattern.test(asset.name))
+    ) ?? null;
+  }
+
+  async fetchAsset(asset: GitHubAsset): Promise<Response> {
+    const headers = this.buildHeaders();
+    headers.Accept = "application/octet-stream";
+
+    const res = await fetch(asset.url, { headers });
+    if (!res.ok) {
+      throw new Error(`GitHub asset ${asset.name} returned ${res.status}: ${await res.text()}`);
+    }
+
+    return res;
+  }
+
+  async fetchAssetText(asset: GitHubAsset): Promise<string> {
+    const res = await this.fetchAsset(asset);
+    return res.text();
   }
 
   getLastFetchTime(): number {
