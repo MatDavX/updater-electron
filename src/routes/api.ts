@@ -4,6 +4,7 @@ import type { Storage } from "../storage";
 import { authGuard } from "../middleware/auth";
 import { sseBroker } from "../sse";
 import { getActiveVersion, setActiveVersion } from "../version-control";
+import { getMinVersion, setMinVersion } from "../emergency";
 
 const ALLOWED_EXTENSIONS = [
   ".exe", ".msi", ".dmg", ".zip", ".AppImage",
@@ -172,5 +173,22 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       const latest = await github.getLatest();
       sseBroker.broadcast("version-change", { version: latest?.version ?? null, isLatest: true });
       return { status: "ok", activeVersion: null, latestVersion: latest?.version };
+    })
+    // ── Emergency / atualização obrigatória ──────────────────────────────
+    .get("/emergency", () => ({ minVersion: getMinVersion() }))
+    .post("/emergency", async ({ body, set }) => {
+      const { minVersion, version } = body as { minVersion: string; version?: string };
+      if (!minVersion) {
+        set.status = 400;
+        return { error: "minVersion is required" };
+      }
+      setMinVersion(minVersion);
+      // Avisa os apps abertos na hora (apps fechados pegam via /min-version.json no boot).
+      sseBroker.broadcast("emergency", { minVersion, version: version ?? minVersion });
+      return { status: "ok", minVersion };
+    })
+    .delete("/emergency", () => {
+      setMinVersion(null);
+      return { status: "ok", minVersion: null };
     });
 }

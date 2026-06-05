@@ -212,6 +212,22 @@ function buildHTML(
 
     <div class="section">
       <div class="section-title">
+        Modo Emergencia
+        <div class="version-control">
+          <input id="emergency-min" placeholder="minVersion (ex: 1.3.0)" style="padding:6px 10px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;width:160px;" />
+          <button class="btn btn-danger btn-sm" onclick="activateEmergency()">Ativar Emergencia</button>
+          <button class="btn btn-sm" onclick="clearEmergency()">Desativar</button>
+        </div>
+      </div>
+      <p style="font-size:13px;color:#8b949e;">
+        Forca atualizacao OBRIGATORIA: clients com versao &lt; minVersion travam num modal ate atualizar.
+        Apps abertos recebem na hora (SSE); apps fechados pegam no boot via /min-version.json.
+        Estado atual: <strong id="emergency-status">—</strong>
+      </p>
+    </div>
+
+    <div class="section">
+      <div class="section-title">
         Release Notes
         ${release ? `<a href="${repoUrl}/releases/tag/v${release.version}" target="_blank" class="btn btn-sm">Ver no GitHub &rarr;</a>` : ""}
       </div>
@@ -445,6 +461,50 @@ function buildHTML(
       }
     }
 
+    async function loadEmergency() {
+      try {
+        const res = await fetch('/api/emergency', { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const el = document.getElementById('emergency-status');
+        if (data.minVersion) {
+          el.textContent = 'ATIVA (minVersion ' + data.minVersion + ')';
+          el.style.color = '#f85149';
+          document.getElementById('emergency-min').value = data.minVersion;
+        } else {
+          el.textContent = 'inativa';
+          el.style.color = '#3fb950';
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    async function activateEmergency() {
+      const minVersion = document.getElementById('emergency-min').value.trim();
+      if (!minVersion) { showToast('Informe a minVersion', 'error'); return; }
+      if (!confirm('Ativar emergencia? Clients com versao < ' + minVersion + ' serao bloqueados ate atualizar.')) return;
+      try {
+        const res = await fetch('/api/emergency', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ minVersion, version: minVersion }),
+        });
+        if (handleAuthError(null, res)) return;
+        const data = await res.json();
+        if (data.status === 'ok') { showToast('Emergencia ATIVADA (minVersion ' + minVersion + ')'); loadEmergency(); }
+        else { showToast(data.error || 'Erro', 'error'); }
+      } catch (e) { showToast('Erro de conexao', 'error'); }
+    }
+
+    async function clearEmergency() {
+      try {
+        const res = await fetch('/api/emergency', { method: 'DELETE', headers: authHeaders() });
+        if (handleAuthError(null, res)) return;
+        const data = await res.json();
+        if (data.status === 'ok') { showToast('Emergencia desativada'); loadEmergency(); }
+        else { showToast(data.error || 'Erro', 'error'); }
+      } catch (e) { showToast('Erro de conexao', 'error'); }
+    }
+
     // File input
     document.getElementById('file-input').addEventListener('change', async (e) => {
       const files = e.target.files;
@@ -494,6 +554,7 @@ function buildHTML(
 
     // Load version history on page load
     loadVersions();
+    loadEmergency();
   </script>
 </body>
 </html>`;
