@@ -6,6 +6,7 @@ import { downloadRoutes } from "./routes/download";
 import { dashboardRoutes } from "./routes/dashboard";
 import { apiRoutes } from "./routes/api";
 import { eventRoutes } from "./routes/events";
+import { minVersionRoutes } from "./routes/min-version";
 import { rateLimiter } from "./middleware/rate-limit";
 import { authGuard } from "./middleware/auth";
 import { sseBroker } from "./sse";
@@ -39,6 +40,7 @@ const app = new Elysia()
   .use(rateLimiter())
   .use(dashboardRoutes(github, storage))
   .use(eventRoutes())
+  .use(minVersionRoutes())
   .use(updateRoutes(github, storage))
   .use(downloadRoutes(github, storage))
   .use(apiRoutes(github, storage))
