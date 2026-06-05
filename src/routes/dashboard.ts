@@ -552,9 +552,25 @@ function buildHTML(
       };
     })();
 
+    // Atualiza a contagem de SSE clients ao vivo (snapshot do render fica desatualizado).
+    async function refreshSseCount() {
+      try {
+        const res = await fetch('/health');
+        if (!res.ok) return;
+        const data = await res.json();
+        const n = String(data.sseClients ?? '?');
+        const card = document.getElementById('sse-clients');
+        const head = document.getElementById('sse-count');
+        if (card) card.textContent = n;
+        if (head) head.textContent = n;
+      } catch (e) { /* ignore */ }
+    }
+
     // Load version history on page load
     loadVersions();
     loadEmergency();
+    refreshSseCount();
+    setInterval(refreshSseCount, 10_000);
   </script>
 </body>
 </html>`;
