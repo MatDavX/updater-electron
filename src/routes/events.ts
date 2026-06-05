@@ -5,6 +5,21 @@ export function eventRoutes() {
   return new Elysia().get("/events/updates", () => {
     const encoder = new TextEncoder();
 
+    let unsubscribe: (() => void) | null = null;
+    let keepAlive: ReturnType<typeof setInterval> | null = null;
+
+    // Libera inscrição + keepAlive na hora (disconnect do client ou erro de envio).
+    const cleanup = () => {
+      if (keepAlive) {
+        clearInterval(keepAlive);
+        keepAlive = null;
+      }
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
+
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(encoder.encode(": connected\n\n"));
@@ -13,21 +28,23 @@ export function eventRoutes() {
           try {
             controller.enqueue(encoder.encode(message));
           } catch {
-            unsubscribe();
-            clearInterval(keepAlive);
+            cleanup();
           }
         };
 
-        const unsubscribe = sseBroker.subscribe(send);
+        unsubscribe = sseBroker.subscribe(send);
 
-        const keepAlive = setInterval(() => {
+        keepAlive = setInterval(() => {
           try {
             controller.enqueue(encoder.encode(": ping\n\n"));
           } catch {
-            clearInterval(keepAlive);
-            unsubscribe();
+            cleanup();
           }
         }, 30_000);
+      },
+      // Disparado quando o client desconecta (fecha app, reload, restart) — limpa na hora.
+      cancel() {
+        cleanup();
       },
     });
 
