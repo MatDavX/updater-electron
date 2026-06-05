@@ -189,6 +189,8 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
     })
     .delete("/emergency", () => {
       setMinVersion(null);
+      // Avisa apps abertos para fechar o modal de atualização obrigatória.
+      sseBroker.broadcast("emergency-clear", {});
       return { status: "ok", minVersion: null };
     });
 }
