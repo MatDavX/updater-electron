@@ -11,6 +11,7 @@ interface GitHubRelease {
   body: string;
   published_at: string;
   assets: GitHubAsset[];
+  draft: boolean;
 }
 
 export interface CachedRelease {
@@ -80,6 +81,14 @@ export class GitHubCache {
     };
     this.lastFetch = Date.now();
     console.log(`[github] Cached release v${version} (${release.assets.length} assets)`);
+  }
+
+  // Força o próximo getAllReleases()/getRelease() a rebuscar no GitHub em vez
+  // de servir o cache com TTL de até `ttl` ms. Chamado logo após criar um
+  // release para que ele apareça na hora no dropdown de "Controle de Versão"
+  // (que lê `allReleasesCache`) em vez de esperar o TTL expirar.
+  invalidateAllReleases(): void {
+    this.allReleasesLastFetch = 0;
   }
 
   async getAllReleases(): Promise<CachedRelease[]> {
@@ -184,12 +193,18 @@ export class GitHubCache {
     }
 
     const releases: GitHubRelease[] = await res.json();
-    this.allReleasesCache = releases.map((r) => ({
-      version: r.tag_name.replace(/^v/, ""),
-      notes: r.body ?? "",
-      releaseDate: r.published_at,
-      assets: r.assets,
-    }));
+    // `/releases` inclui drafts (requisição autenticada); um draft órfão com o
+    // mesmo tag_name de um release publicado passaria na frente em .find() e
+    // mascararia os assets reais (ex.: build re-disparado deixou draft sem
+    // o instalador win32, ver histórico do v1.2.2).
+    this.allReleasesCache = releases
+      .filter((r) => !r.draft)
+      .map((r) => ({
+        version: r.tag_name.replace(/^v/, ""),
+        notes: r.body ?? "",
+        releaseDate: r.published_at,
+        assets: r.assets,
+      }));
     this.allReleasesLastFetch = Date.now();
     console.log(`[github] Cached ${this.allReleasesCache.length} releases`);
   }

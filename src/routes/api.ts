@@ -127,6 +127,12 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       try {
         const release = await github.createRelease(tag, name || tag, notes || "");
         await github.refresh().catch(() => {});
+        // `refresh()` só atualiza o cache do "latest" (usado por /latest-version
+        // e /download/latest/*). O dropdown de versões (releases/history) lê
+        // `allReleasesCache`, que tem TTL próprio — sem isto, o release novo só
+        // aparece lá depois de até `CACHE_TTL` ms.
+        github.invalidateAllReleases();
+        await github.getAllReleases().catch(() => {});
 
         const version = tag.replace(/^v/, "");
         sseBroker.broadcast("release", { version, url: release.html_url });
