@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, beforeAll, afterAll } from "bun:test";
 import { Elysia } from "elysia";
 import { StateStore } from "../state-store";
 import { SSEBroker } from "../sse";
@@ -15,7 +15,23 @@ function setup() {
 }
 const json = (body: unknown) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
+// Testes de modo aberto assumem API_SECRET não setado. `Bun.env` carrega o
+// `.env` real automaticamente, então numa máquina com API_SECRET configurado
+// esses testes 401-ariam — força modo aberto e restaura o valor original.
+function forceOpenMode() {
+  let original: string | undefined;
+  beforeAll(() => {
+    original = Bun.env.API_SECRET;
+    delete Bun.env.API_SECRET;
+  });
+  afterAll(() => {
+    if (original !== undefined) Bun.env.API_SECRET = original;
+  });
+}
+
 describe("/api/fleet", () => {
+  forceOpenMode();
+
   it("GET lists terminals with online + forcedMinVersion", async () => {
     const { app, broker } = setup();
     broker.subscribe(() => {}, { terminalId: "t1" });
@@ -121,6 +137,8 @@ describe("/api/fleet auth", () => {
 });
 
 describe("GET /min-version.json", () => {
+  forceOpenMode();
+
   it("returns max(global, forced) per terminal", async () => {
     const { app, store } = setup();
     store.update((s) => { s.minVersion = "1.3.0"; });
