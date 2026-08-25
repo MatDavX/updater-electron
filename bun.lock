@@ -5,7 +5,7 @@
     "": {
       "name": "app",
       "dependencies": {
-        "elysia": "latest",
+        "elysia": "^1.4.27",
         "yaml": "^2.7.0",
       },
       "devDependencies": {
