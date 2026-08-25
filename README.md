@@ -49,6 +49,7 @@ cp .env.example .env
 | `PORT` | Não | Porta do servidor (padrão: `3000`) |
 | `CACHE_TTL` | Não | Tempo de cache em ms (padrão: `900000` = 15 min) |
 | `DATA_DIR` | Não | Diretório do estado persistente (emergência, pin, frota). Padrão: ./data |
+| `API_SECRET` | Não | Token dos endpoints admin (`Authorization: Bearer <API_SECRET>`). Se vazio, `/api/*` e `/refresh` ficam ABERTOS (modo dev) |
 
 \* Obrigatório se o repositório for privado. Gere em: GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens (permissão `Contents: read`).
 
@@ -108,10 +109,10 @@ curl -L http://localhost:3000/download/latest/linux
 
 ### Rotas de administração
 
-| Rota | Método | Descrição |
-|------|--------|-----------|
-| `/health` | `GET` | Status do servidor, versão cached e quantidade de arquivos locais |
-| `/refresh` | `POST` | Força refresh do cache do GitHub e limpa cache de metadados dos arquivos |
+| Rota | Método | Auth | Descrição |
+|------|--------|:----:|-----------|
+| `/health` | `GET` | não | Status do servidor, versão cached e quantidade de arquivos locais |
+| `/refresh` | `POST` | sim | Força refresh do cache do GitHub e limpa cache de metadados dos arquivos |
 
 **Exemplos:**
 
@@ -127,7 +128,7 @@ curl http://localhost:3000/health
 # }
 
 # Forçar refresh do cache
-curl -X POST http://localhost:3000/refresh
+curl -X POST http://localhost:3000/refresh -H "Authorization: Bearer $API_SECRET"
 # Resposta:
 # { "status": "refreshed", "version": "1.0.0" }
 ```
@@ -139,7 +140,7 @@ Cada PDV envia um heartbeat (boot, a cada 30 min e ao logar) e conecta o SSE com
 | Rota | Método | Auth | Descrição |
 |------|--------|:----:|-----------|
 | `/fleet/heartbeat` | `POST` | não | `{ terminalId, terminalName, version, platform, arch, companyId?, unitId?, userId?, userName?, userEmail? }` → `204` |
-| `/min-version.json?terminalId=X` | `GET` | não | `{ minVersion }` = maior entre a emergência global e a forçada para X |
+| `/min-version.json?terminalId=X` | `GET` | não | `{ "minVersion": "x.y.z" \| null }` = maior entre a emergência global e a forçada para X |
 | `/api/fleet` | `GET` | sim | Lista terminais (`online`, `lastSeen`, `version`, usuário, `forcedMinVersion`) |
 | `/api/fleet/:terminalId/force` | `POST` | sim | `{ minVersion }` — modal obrigatório só nesse terminal (SSE imediato se online; senão no próximo boot). `404` se o terminal não está no inventário; `400` se `minVersion` não for semver `x.y.z` |
 | `/api/fleet/:terminalId/force` | `DELETE` | sim | Cancela o forçado individual. Se ainda houver emergência global ativa, o terminal continua obrigado: recebe `emergency` com o `minVersion` global em vez de `emergency-clear` |
