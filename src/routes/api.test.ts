@@ -98,3 +98,52 @@ describe("DELETE /api/emergency", () => {
     }
   });
 });
+
+function json(body: unknown) {
+  return { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+}
+
+describe("POST /api/emergency", () => {
+  const originalApiSecret = Bun.env.API_SECRET;
+  beforeAll(() => { delete Bun.env.API_SECRET; });
+  afterAll(() => {
+    if (originalApiSecret !== undefined) Bun.env.API_SECRET = originalApiSecret;
+  });
+
+  it("sends the terminal's EFFECTIVE minVersion to connected forced terminals, and the plain global value to everyone else", async () => {
+    const app = buildApp();
+
+    testStore.update((s) => {
+      s.forced = { t1: { minVersion: "1.5.0", createdAt: new Date().toISOString() } };
+    });
+
+    const t1Got: string[] = [];
+    const t2Got: string[] = [];
+    const anonGot: string[] = [];
+    const unsubT1 = sseBroker.subscribe((m) => t1Got.push(m), { terminalId: "t1" });
+    const unsubT2 = sseBroker.subscribe((m) => t2Got.push(m), { terminalId: "t2" });
+    const unsubAnon = sseBroker.subscribe((m) => anonGot.push(m));
+
+    try {
+      const res = await app.handle(new Request("http://localhost/api/emergency", json({ minVersion: "1.3.0" })));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ status: "ok", minVersion: "1.3.0" });
+      expect(testStore.get().minVersion).toBe("1.3.0");
+
+      expect(t1Got).toEqual(['event: emergency\ndata: {"minVersion":"1.5.0","version":"1.5.0"}\n\n']);
+      expect(t2Got).toEqual(['event: emergency\ndata: {"minVersion":"1.3.0","version":"1.3.0"}\n\n']);
+      expect(anonGot).toEqual(['event: emergency\ndata: {"minVersion":"1.3.0","version":"1.3.0"}\n\n']);
+    } finally {
+      unsubT1();
+      unsubT2();
+      unsubAnon();
+    }
+  });
+
+  it("rejects a minVersion that isn't x.y.z", async () => {
+    const app = buildApp();
+    const res = await app.handle(new Request("http://localhost/api/emergency", json({ minVersion: "latest" })));
+    expect(res.status).toBe(400);
+    expect(testStore.get().minVersion).toBeNull();
+  });
+});

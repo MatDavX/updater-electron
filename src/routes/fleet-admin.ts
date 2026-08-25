@@ -3,8 +3,7 @@ import type { StateStore } from "../state-store";
 import type { SSEBroker } from "../sse";
 import { authGuard } from "../middleware/auth";
 import { listFleet, setForced, clearForced, removeTerminal, effectiveMinVersion } from "../fleet";
-
-const SEMVER = /^\d+\.\d+\.\d+$/;
+import { SEMVER } from "../semver";
 
 // Rotas ADMIN (token) de frota: listar terminais e forçar/cancelar update
 // obrigatório em UM terminal. O cliente só entra em modo obrigatório se a
@@ -31,8 +30,14 @@ export function fleetAdminRoutes(store: StateStore, broker: SSEBroker) {
         }
         setForced(store, terminalId, minVersion);
         // Apps abertos recebem na hora; fechados pegam no boot via
-        // /min-version.json?terminalId= (Task S4, min-version.ts).
-        const delivered = broker.sendTo(terminalId, "emergency", { minVersion, version: minVersion });
+        // /min-version.json?terminalId= (Task S4, min-version.ts). O evento
+        // SSE carrega a minVersion EFETIVA (max entre global e forçada) —
+        // se já houver uma emergência global maior que o valor forçado,
+        // mandar só o forçado deixaria o modal obrigatório do PDV mostrar
+        // uma versão menor que a que ele já é de fato obrigado a ter. A
+        // resposta HTTP continua ecoando o valor forçado que foi pedido.
+        const eff = effectiveMinVersion(store, terminalId)!;
+        const delivered = broker.sendTo(terminalId, "emergency", { minVersion: eff, version: eff });
         return { status: "ok", terminalId, minVersion, online: delivered > 0 };
       },
       { body: t.Object({ minVersion: t.String({ maxLength: 32 }) }) },

@@ -55,6 +55,20 @@ describe("/api/fleet", () => {
     expect(other).toHaveLength(0);
   });
 
+  it("POST /:id/force pushes the EFFECTIVE minVersion (max w/ global), not the forced value, when global is higher", async () => {
+    const { app, broker, store } = setup();
+    store.update((s) => { s.minVersion = "1.3.0"; });
+    const got: string[] = [];
+    broker.subscribe((m) => got.push(m), { terminalId: "t1" });
+    const res = await app.handle(new Request("http://localhost/api/fleet/t1/force", json({ minVersion: "1.2.0" })));
+    expect(res.status).toBe(200);
+    // A resposta HTTP ecoa o valor forçado que foi pedido...
+    expect(await res.json()).toEqual({ status: "ok", terminalId: "t1", minVersion: "1.2.0", online: true });
+    expect(store.get().forced.t1.minVersion).toBe("1.2.0");
+    // ...mas o evento SSE carrega a minVersion efetiva (global vence, 1.3.0 > 1.2.0).
+    expect(got[0]).toBe('event: emergency\ndata: {"minVersion":"1.3.0","version":"1.3.0"}\n\n');
+  });
+
   it("POST /:id/force rejects non-semver", async () => {
     const { app } = setup();
     const res = await app.handle(new Request("http://localhost/api/fleet/t1/force", json({ minVersion: "latest" })));

@@ -6,6 +6,8 @@ import { sseBroker } from "../sse";
 import { getActiveVersion, setActiveVersion } from "../version-control";
 import { getMinVersion, setMinVersion } from "../emergency";
 import { stateStore } from "../state-store";
+import { effectiveMinVersion } from "../fleet";
+import { SEMVER } from "../semver";
 
 const ALLOWED_EXTENSIONS = [
   ".exe", ".msi", ".dmg", ".zip", ".AppImage",
@@ -189,9 +191,24 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
         set.status = 400;
         return { error: "minVersion is required" };
       }
+      if (!SEMVER.test(minVersion)) {
+        set.status = 400;
+        return { error: "minVersion must be x.y.z" };
+      }
       setMinVersion(minVersion);
-      // Avisa os apps abertos na hora (apps fechados pegam via /min-version.json no boot).
-      sseBroker.broadcast("emergency", { minVersion, version: version ?? minVersion });
+      // Avisa os apps abertos na hora (apps fechados pegam via /min-version.json
+      // no boot). Terminais com update forçado individual têm minVersion
+      // EFETIVA própria (max entre global e forçada) — mandar o valor global
+      // puro pra eles regrediria o que já é exigido deles (ver findings #2/#3).
+      const forced = stateStore.get().forced;
+      for (const id of Object.keys(forced)) {
+        if (!sseBroker.isConnected(id)) continue;
+        const eff = effectiveMinVersion(stateStore, id)!;
+        sseBroker.sendTo(id, "emergency", { minVersion: eff, version: eff });
+      }
+      sseBroker.broadcast("emergency", { minVersion, version: version ?? minVersion }, {
+        exclude: (id) => id !== null && !!forced[id],
+      });
       return { status: "ok", minVersion };
     })
     .delete("/emergency", () => {
