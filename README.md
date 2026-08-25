@@ -48,6 +48,7 @@ cp .env.example .env
 | `RELEASES_DIR` | Não | Diretório dos binários (padrão: `./releases`) |
 | `PORT` | Não | Porta do servidor (padrão: `3000`) |
 | `CACHE_TTL` | Não | Tempo de cache em ms (padrão: `900000` = 15 min) |
+| `DATA_DIR` | Não | Diretório do estado persistente (emergência, pin, frota). Padrão: ./data |
 
 \* Obrigatório se o repositório for privado. Gere em: GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens (permissão `Contents: read`).
 
@@ -103,6 +104,8 @@ curl -L http://localhost:3000/download/latest/darwin
 curl -L http://localhost:3000/download/latest/linux
 ```
 
+`GET /download/:filename` suporta `Range` (retorna `206 Partial Content`) tanto para arquivos locais quanto via proxy do GitHub.
+
 ### Rotas de administração
 
 | Rota | Método | Descrição |
@@ -128,6 +131,23 @@ curl -X POST http://localhost:3000/refresh
 # Resposta:
 # { "status": "refreshed", "version": "1.0.0" }
 ```
+
+### Frota (inventário de terminais + update forçado)
+
+Cada PDV envia um heartbeat (boot, a cada 30 min e ao logar) e conecta o SSE com `?terminalId=`.
+
+| Rota | Método | Auth | Descrição |
+|------|--------|:----:|-----------|
+| `/fleet/heartbeat` | `POST` | não | `{ terminalId, terminalName, version, platform, arch, companyId?, unitId?, userId?, userName?, userEmail? }` → `204` |
+| `/min-version.json?terminalId=X` | `GET` | não | `{ minVersion }` = maior entre a emergência global e a forçada para X |
+| `/api/fleet` | `GET` | sim | Lista terminais (`online`, `lastSeen`, `version`, usuário, `forcedMinVersion`) |
+| `/api/fleet/:terminalId/force` | `POST` | sim | `{ minVersion }` — modal obrigatório só nesse terminal (SSE imediato se online; senão no próximo boot). `404` se o terminal não está no inventário; `400` se `minVersion` não for semver `x.y.z` |
+| `/api/fleet/:terminalId/force` | `DELETE` | sim | Cancela o forçado individual. Se ainda houver emergência global ativa, o terminal continua obrigado: recebe `emergency` com o `minVersion` global em vez de `emergency-clear` |
+| `/api/fleet/:terminalId` | `DELETE` | sim | Remove do inventário |
+
+`DELETE /api/emergency` (global) não fecha o modal de terminais com forçado individual.
+
+O estado (emergência, pin, forçados individuais, frota) fica em `DATA_DIR/state.json` e sobrevive a restarts.
 
 ## Guia do desenvolvedor
 
