@@ -228,6 +228,22 @@ function buildHTML(
 
     <div class="section">
       <div class="section-title">
+        Frota
+        <div class="version-control">
+          <input id="fleet-filter" placeholder="filtrar por terminal, usuario, versao..." style="padding:6px 10px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;width:260px;" oninput="renderFleet()" />
+          <button class="btn btn-sm" onclick="loadFleet()">Atualizar</button>
+        </div>
+      </div>
+      <p style="font-size:13px;color:#8b949e;">
+        Terminais que ja se reportaram (heartbeat no boot, a cada 30 min e ao logar). <strong>Forcar</strong> abre o modal
+        de atualizacao obrigatoria so naquele terminal (se ele ja estiver na versao, nada acontece).
+        Versoes: <span id="fleet-summary">—</span>
+      </p>
+      <div id="fleet-table"><div class="empty">Carregando...</div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">
         Release Notes
         ${release ? `<a href="${repoUrl}/releases/tag/v${release.version}" target="_blank" class="btn btn-sm">Ver no GitHub &rarr;</a>` : ""}
       </div>
@@ -566,11 +582,112 @@ function buildHTML(
       } catch (e) { /* ignore */ }
     }
 
+    let fleetCache = [];
+
+    function fmtAgo(iso) {
+      const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.round(s / 60) + 'min';
+      if (s < 86400) return Math.round(s / 3600) + 'h';
+      return Math.round(s / 86400) + 'd';
+    }
+
+    function esc(v) {
+      return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    async function loadFleet() {
+      try {
+        const res = await fetch('/api/fleet', { headers: authHeaders() });
+        if (handleAuthError(null, res)) return;
+        const data = await res.json();
+        fleetCache = data.terminals || [];
+        renderFleet();
+      } catch (e) {
+        document.getElementById('fleet-table').innerHTML = '<div class="empty">Erro ao carregar frota</div>';
+      }
+    }
+
+    function renderFleet() {
+      const q = (document.getElementById('fleet-filter').value || '').toLowerCase();
+      const rows = fleetCache.filter((t) =>
+        !q || [t.terminalName, t.terminalId, t.userName, t.userEmail, t.version, t.companyId, t.unitId]
+          .some((v) => String(v ?? '').toLowerCase().includes(q))
+      );
+
+      const byVersion = {};
+      for (const t of fleetCache) byVersion[t.version] = (byVersion[t.version] || 0) + 1;
+      document.getElementById('fleet-summary').textContent =
+        Object.entries(byVersion).sort().map(([v, n]) => v + ' x' + n).join(' | ') || '—';
+
+      const el = document.getElementById('fleet-table');
+      if (rows.length === 0) { el.innerHTML = '<div class="empty">Nenhum terminal</div>'; return; }
+
+      el.innerHTML = '<table><thead><tr>' +
+        '<th></th><th>Terminal</th><th>Usuario</th><th>Versao</th><th>Visto</th><th>Forcado</th><th></th>' +
+        '</tr></thead><tbody>' + rows.map((t) => {
+          const dot = t.online ? '<span class="sse-dot" title="online"></span>' : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#484f58;margin-right:6px" title="offline"></span>';
+          const forced = t.forcedMinVersion ? '<span class="badge badge-yellow">' + esc(t.forcedMinVersion) + '</span>' : '—';
+          const action = t.forcedMinVersion
+            ? '<button class="btn btn-sm" onclick="unforceTerminal(\'' + esc(t.terminalId) + '\')">Cancelar</button>'
+            : '<button class="btn btn-danger btn-sm" onclick="forceTerminal(\'' + esc(t.terminalId) + '\',\'' + esc(t.terminalName) + '\')">Forcar</button>';
+          return '<tr>' +
+            '<td>' + dot + '</td>' +
+            '<td><strong>' + esc(t.terminalName) + '</strong><br><span style="font-size:11px;color:#8b949e">' + esc(t.terminalId) + ' · ' + esc(t.platform) + '/' + esc(t.arch) + '</span></td>' +
+            '<td>' + esc(t.userName || '—') + '<br><span style="font-size:11px;color:#8b949e">' + esc(t.userEmail || '') + '</span></td>' +
+            '<td><span class="badge badge-green">' + esc(t.version) + '</span></td>' +
+            '<td title="' + esc(t.lastSeen) + '">' + fmtAgo(t.lastSeen) + '</td>' +
+            '<td>' + forced + '</td>' +
+            '<td style="white-space:nowrap">' + action + ' <button class="btn btn-sm" onclick="removeTerminal(\'' + esc(t.terminalId) + '\')" title="remover do inventario">&times;</button></td>' +
+            '</tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    async function forceTerminal(terminalId, name) {
+      const current = document.getElementById('version').textContent.trim();
+      const minVersion = prompt('Forcar atualizacao em "' + name + '". minVersion:', current);
+      if (!minVersion) return;
+      try {
+        const res = await fetch('/api/fleet/' + encodeURIComponent(terminalId) + '/force', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ minVersion: minVersion.trim() }),
+        });
+        if (handleAuthError(null, res)) return;
+        const data = await res.json();
+        if (data.status === 'ok') {
+          showToast('Forcado ' + data.minVersion + ' em ' + name + (data.online ? ' (entregue agora)' : ' (offline: aplica no proximo boot)'));
+          loadFleet();
+        } else { showToast(data.error || 'Erro', 'error'); }
+      } catch (e) { showToast('Erro de conexao', 'error'); }
+    }
+
+    async function unforceTerminal(terminalId) {
+      try {
+        const res = await fetch('/api/fleet/' + encodeURIComponent(terminalId) + '/force', { method: 'DELETE', headers: authHeaders() });
+        if (handleAuthError(null, res)) return;
+        const data = await res.json();
+        if (data.status === 'ok') { showToast('Update forcado cancelado'); loadFleet(); }
+        else { showToast(data.error || 'Erro', 'error'); }
+      } catch (e) { showToast('Erro de conexao', 'error'); }
+    }
+
+    async function removeTerminal(terminalId) {
+      if (!confirm('Remover terminal do inventario? Ele volta no proximo heartbeat.')) return;
+      try {
+        const res = await fetch('/api/fleet/' + encodeURIComponent(terminalId), { method: 'DELETE', headers: authHeaders() });
+        if (handleAuthError(null, res)) return;
+        loadFleet();
+      } catch (e) { showToast('Erro de conexao', 'error'); }
+    }
+
     // Load version history on page load
     loadVersions();
     loadEmergency();
     refreshSseCount();
     setInterval(refreshSseCount, 10_000);
+    loadFleet();
+    setInterval(loadFleet, 30_000);
   </script>
 </body>
 </html>`;
