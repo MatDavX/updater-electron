@@ -11,7 +11,7 @@ import { fleetPublicRoutes } from "./routes/fleet-public";
 import { fleetAdminRoutes } from "./routes/fleet-admin";
 import { versionRoutes } from "./routes/version";
 import { rateLimiter } from "./middleware/rate-limit";
-import { authGuard } from "./middleware/auth";
+import { authGuard, requestAuthGate } from "./middleware/auth";
 import { sseBroker } from "./sse";
 import { stateStore } from "./state-store";
 import { pruneFleet, FLEET_RETENTION_DAYS } from "./fleet";
@@ -50,6 +50,11 @@ const refreshRoutes = new Elysia()
   });
 
 const app = new Elysia()
+  // Roda ANTES do roteamento/parse de body — evita que `POST /api/upload`
+  // (multipart) grave o arquivo em disco antes da checagem de auth rodar
+  // (ver `requestAuthGate` em `src/middleware/auth.ts`, finding #4). Os
+  // usos de `authGuard()` scoped continuam como fallback.
+  .onRequest(requestAuthGate(Bun.env.API_SECRET))
   .use(rateLimiter())
   .use(dashboardRoutes(github, storage))
   .use(eventRoutes(stateStore))
