@@ -649,8 +649,9 @@ function buildHTML(
           const action = t.forcedMinVersion
             ? '<button class="btn btn-sm" data-action="unforce" data-id="' + esc(t.terminalId) + '">Cancelar</button>'
             : '<button class="btn btn-danger btn-sm" data-action="force" data-id="' + esc(t.terminalId) + '" data-name="' + esc(t.terminalName) + '">Forcar</button>';
-          // So faz sentido deslogar quem tem sessao viva (online) E alguem logado.
-          const logout = t.online && t.userEmail
+          // So faz sentido deslogar quem tem sessao viva (online); o servidor nem sempre sabe
+          // quem esta logado (heartbeat exige HTTPS) e o PDV ignora o logout se ninguem estiver logado.
+          const logout = t.online
             ? ' <button class="btn btn-sm" data-action="logout" data-id="' + esc(t.terminalId) + '" data-name="' + esc(t.terminalName) + '">Deslogar</button>'
             : '';
           return '<tr>' +
