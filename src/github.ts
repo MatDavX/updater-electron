@@ -154,11 +154,11 @@ export class GitHubCache {
     ) ?? null;
   }
 
-  async fetchAsset(asset: GitHubAsset): Promise<Response> {
-    const headers = this.buildHeaders();
+  async fetchAsset(asset: GitHubAsset, extraHeaders: Record<string, string> = {}): Promise<Response> {
+    const headers = { ...this.buildHeaders(), ...extraHeaders };
     headers.Accept = "application/octet-stream";
 
-    const res = await fetch(asset.url, { headers });
+    const res = await fetch(asset.url, { headers, redirect: "follow" });
     if (!res.ok) {
       throw new Error(`GitHub asset ${asset.name} returned ${res.status}: ${await res.text()}`);
     }
