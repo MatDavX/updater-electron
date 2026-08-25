@@ -30,6 +30,18 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+// Escapador server-side (contexto HTML de texto/atributo) para valores que
+// vêm de arquivos em disco (nome pode conter caracteres arbitrários) — não
+// confundir com o `esc()` client-side embutido no JS da página (que escapa
+// dados da frota, vindos do heartbeat). `filename` também alimenta um
+// `data-filename` usado por um listener delegado (não `onclick` com string
+// interpolada), então não precisa escapar para contexto de script.
+function escHtml(v: string): string {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>
+  )[c]);
+}
+
 function platformLabel(platform: string | null): string {
   const labels: Record<string, string> = { win32: "Windows", darwin: "macOS", linux: "Linux" };
   return platform ? labels[platform] ?? platform : "Desconhecido";
@@ -64,11 +76,11 @@ function buildHTML(
     .map(
       (f) => `
       <tr>
-        <td>${platformIcon(f.platform)} ${f.filename}</td>
+        <td>${platformIcon(f.platform)} ${escHtml(f.filename)}</td>
         <td>${platformLabel(f.platform)}</td>
         <td>${formatSize(f.size)}</td>
-        <td><code title="${f.sha512}">${f.sha512.substring(0, 16)}...</code></td>
-        <td><button class="btn btn-danger btn-sm" onclick="deleteFile('${f.filename}')">Deletar</button></td>
+        <td><code title="${escHtml(f.sha512)}">${escHtml(f.sha512.substring(0, 16))}...</code></td>
+        <td><button class="btn btn-danger btn-sm" data-action="delete-file" data-filename="${escHtml(f.filename)}">Deletar</button></td>
       </tr>`,
     )
     .join("");
@@ -254,7 +266,7 @@ function buildHTML(
       <div class="section-title">Arquivos Locais</div>
       ${
         files.length > 0
-          ? `<table>
+          ? `<table id="files-table">
           <thead><tr><th>Arquivo</th><th>Plataforma</th><th>Tamanho</th><th>SHA512</th><th></th></tr></thead>
           <tbody>${fileRows}</tbody>
         </table>`
@@ -695,6 +707,13 @@ function buildHTML(
       if (action === 'force') forceTerminal(id, name);
       else if (action === 'unforce') unforceTerminal(id);
       else if (action === 'remove') removeTerminal(id);
+    });
+
+    // Tabela de arquivos locais só existe no HTML quando files.length > 0.
+    document.getElementById('files-table')?.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-action="delete-file"]');
+      if (!b) return;
+      deleteFile(b.dataset.filename);
     });
 
     // Load version history on page load

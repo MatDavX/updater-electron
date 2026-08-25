@@ -25,5 +25,11 @@ describe("dashboardRoutes", () => {
     expect(html).not.toContain('onclick="unforceTerminal(');
     expect(html).not.toContain('onclick="removeTerminal(');
     expect(html).toContain('data-action="force"');
+
+    // Mesmo problema para o botão "Deletar" da tabela de arquivos locais
+    // (server-side, dados vêm do nome do arquivo em disco) — precisa usar
+    // delegação de evento com data-filename, não onclick com string
+    // interpolada pelo servidor.
+    expect(html).not.toContain('onclick="deleteFile(');
   });
 });
