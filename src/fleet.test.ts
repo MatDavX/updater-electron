@@ -3,6 +3,7 @@ import { StateStore } from "./state-store";
 import {
   upsertHeartbeat, touchSeen, removeTerminal, listFleet,
   setForced, clearForced, effectiveMinVersion, compareVersions,
+  pruneFleet, MAX_FLEET_TERMINALS, FLEET_RETENTION_DAYS,
 } from "./fleet";
 
 function mem(): StateStore {
@@ -111,5 +112,71 @@ describe("listFleet", () => {
     expect(list[0].forcedMinVersion).toBeNull();
     expect(list[1].online).toBe(false);
     expect(list[1].forcedMinVersion).toBe("1.5.0");
+  });
+});
+
+describe("cap de terminais (MAX_FLEET_TERMINALS)", () => {
+  it("upsertHeartbeat evicts the oldest lastSeen when at cap and inserting a new terminal", () => {
+    const s = mem();
+    const base = new Date("2026-08-25T00:00:00.000Z").getTime();
+    for (let i = 0; i < MAX_FLEET_TERMINALS; i++) {
+      upsertHeartbeat(s, { ...hb, terminalId: `t${i}` }, new Date(base + i * 1000));
+    }
+    expect(Object.keys(s.get().fleet)).toHaveLength(MAX_FLEET_TERMINALS);
+    setForced(s, "t0", "1.9.0"); // registro mais antigo (t0) tem forced — deve ir junto
+
+    const rec = upsertHeartbeat(s, { ...hb, terminalId: "newcomer" }, new Date(base + MAX_FLEET_TERMINALS * 1000));
+
+    expect(Object.keys(s.get().fleet)).toHaveLength(MAX_FLEET_TERMINALS);
+    expect(s.get().fleet.t0).toBeUndefined();
+    expect(s.get().forced.t0).toBeUndefined();
+    expect(s.get().fleet.newcomer).toEqual(rec);
+    expect(s.get().fleet.t1).toBeDefined(); // segundo mais antigo sobrevive
+  });
+
+  it("touchSeen also evicts the oldest lastSeen when at cap and inserting a new terminal", () => {
+    const s = mem();
+    const base = new Date("2026-08-25T00:00:00.000Z").getTime();
+    for (let i = 0; i < MAX_FLEET_TERMINALS; i++) {
+      touchSeen(s, `t${i}`, "1.0.0", new Date(base + i * 1000));
+    }
+    expect(Object.keys(s.get().fleet)).toHaveLength(MAX_FLEET_TERMINALS);
+
+    touchSeen(s, "newcomer", "1.0.0", new Date(base + MAX_FLEET_TERMINALS * 1000));
+
+    expect(Object.keys(s.get().fleet)).toHaveLength(MAX_FLEET_TERMINALS);
+    expect(s.get().fleet.t0).toBeUndefined();
+    expect(s.get().fleet.newcomer).toBeDefined();
+  });
+
+  it("a repeated heartbeat for a known terminal never triggers eviction", () => {
+    const s = mem();
+    const base = new Date("2026-08-25T00:00:00.000Z").getTime();
+    for (let i = 0; i < MAX_FLEET_TERMINALS; i++) {
+      upsertHeartbeat(s, { ...hb, terminalId: `t${i}` }, new Date(base + i * 1000));
+    }
+    upsertHeartbeat(s, { ...hb, terminalId: "t0" }, new Date(base + MAX_FLEET_TERMINALS * 1000));
+    expect(Object.keys(s.get().fleet)).toHaveLength(MAX_FLEET_TERMINALS);
+    expect(s.get().fleet.t0).toBeDefined();
+  });
+});
+
+describe("pruneFleet", () => {
+  it("removes records with lastSeen older than FLEET_RETENTION_DAYS (and their forced entry), returns the count", () => {
+    const s = mem();
+    const now = new Date("2026-08-25T00:00:00.000Z");
+    const old = new Date(now.getTime() - (FLEET_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000);
+    const fresh = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+
+    upsertHeartbeat(s, { ...hb, terminalId: "old1" }, old);
+    upsertHeartbeat(s, { ...hb, terminalId: "fresh1" }, fresh);
+    setForced(s, "old1", "1.9.0");
+
+    const removed = pruneFleet(s, now);
+
+    expect(removed).toBe(1);
+    expect(s.get().fleet.old1).toBeUndefined();
+    expect(s.get().forced.old1).toBeUndefined();
+    expect(s.get().fleet.fresh1).toBeDefined();
   });
 });

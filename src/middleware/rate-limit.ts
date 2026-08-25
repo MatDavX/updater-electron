@@ -17,8 +17,8 @@ export function rateLimiter(opts?: { window?: number; max?: number }) {
     }
   }, 60_000);
 
-  return new Elysia({ name: "rate-limiter" }).onBeforeHandle(
-    ({ headers, set }) => {
+  return new Elysia({ name: "rate-limiter" })
+    .onBeforeHandle(({ headers, set }) => {
       const ip =
         headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
         headers["x-real-ip"] ??
@@ -49,6 +49,11 @@ export function rateLimiter(opts?: { window?: number; max?: number }) {
           retryAfter: Math.ceil((entry.resetAt - now) / 1000),
         };
       }
-    },
-  );
+    })
+    // Mesmo bug de escopo que `authGuard` tinha: `onBeforeHandle` por padrão
+    // só se aplica à própria instância do plugin, não ao app pai que faz
+    // `.use(rateLimiter())`. `.as("scoped")` propaga um nível acima — em
+    // `index.ts` o limiter é `.use()`d no `app` top-level, então o guard
+    // passa a valer para as rotas do `app`.
+    .as("scoped");
 }

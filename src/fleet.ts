@@ -2,6 +2,12 @@
 // StateStore (injetado) para ser testável sem disco/rede.
 import type { StateStore, FleetRecord, ForcedEntry } from "./state-store";
 
+// Limite de terminais no inventário e retenção de registros parados, para
+// não deixar `state.json` crescer sem limite (frota nunca "esquece"
+// terminais desativados/trocados sem isso).
+export const MAX_FLEET_TERMINALS = 2000;
+export const FLEET_RETENTION_DAYS = 90;
+
 export interface HeartbeatInput {
   terminalId: string;
   terminalName: string;
@@ -26,10 +32,38 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Se `terminalId` é novo (ainda não está em `s.fleet`) e o inventário já
+ * está no limite, remove o registro com `lastSeen` mais antigo (e seu
+ * `forced`, se houver) para abrir espaço. Não faz nada para terminais já
+ * conhecidos (heartbeat repetido nunca deve evictar ninguém).
+ */
+function evictOldestIfAtCap(s: { fleet: Record<string, FleetRecord>; forced: Record<string, ForcedEntry> }, terminalId: string): void {
+  if (s.fleet[terminalId]) return;
+  const ids = Object.keys(s.fleet);
+  if (ids.length < MAX_FLEET_TERMINALS) return;
+
+  let oldestId: string | null = null;
+  let oldestSeen = "";
+  for (const id of ids) {
+    const seen = s.fleet[id].lastSeen;
+    if (oldestId === null || seen < oldestSeen) {
+      oldestId = id;
+      oldestSeen = seen;
+    }
+  }
+  if (oldestId !== null) {
+    delete s.fleet[oldestId];
+    delete s.forced[oldestId];
+    console.log(`[fleet] cap de ${MAX_FLEET_TERMINALS} terminais atingido, removido o mais antigo: ${oldestId}`);
+  }
+}
+
 export function upsertHeartbeat(store: StateStore, input: HeartbeatInput, now: Date = new Date()): FleetRecord {
   const iso = now.toISOString();
   let result!: FleetRecord;
   store.update((s) => {
+    evictOldestIfAtCap(s, input.terminalId);
     const prev = s.fleet[input.terminalId];
     // Campos de usuário são substituídos por inteiro: heartbeat sem usuário
     // (deslogado) apaga o usuário anterior.
@@ -63,6 +97,7 @@ export function touchSeen(store: StateStore, terminalId: string, version?: strin
       if (version) prev.version = version;
       return;
     }
+    evictOldestIfAtCap(s, terminalId);
     s.fleet[terminalId] = {
       terminalId,
       terminalName: terminalId,
@@ -117,6 +152,27 @@ export function clearForced(store: StateStore, terminalId: string): boolean {
     }
   });
   if (removed) console.log(`[fleet] update forçado removido: ${terminalId}`);
+  return removed;
+}
+
+/**
+ * Remove do inventário os terminais com `lastSeen` mais antigo que
+ * `FLEET_RETENTION_DAYS` (e seus `forced`, se houver). Chamado uma vez no
+ * boot do servidor, logo após `stateStore.load()`. Retorna quantos foram
+ * removidos.
+ */
+export function pruneFleet(store: StateStore, now: Date = new Date()): number {
+  const cutoff = now.getTime() - FLEET_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  store.update((s) => {
+    for (const [id, rec] of Object.entries(s.fleet)) {
+      if (new Date(rec.lastSeen).getTime() < cutoff) {
+        delete s.fleet[id];
+        delete s.forced[id];
+        removed++;
+      }
+    }
+  });
   return removed;
 }
 

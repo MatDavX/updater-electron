@@ -14,12 +14,18 @@ import { rateLimiter } from "./middleware/rate-limit";
 import { authGuard } from "./middleware/auth";
 import { sseBroker } from "./sse";
 import { stateStore } from "./state-store";
+import { pruneFleet, FLEET_RETENTION_DAYS } from "./fleet";
 
 const github = new GitHubCache();
 const storage = new Storage();
 
 await stateStore.load();
 console.log(`[state] carregado: minVersion=${stateStore.get().minVersion ?? "-"} activeVersion=${stateStore.get().activeVersion ?? "-"} fleet=${Object.keys(stateStore.get().fleet).length}`);
+
+const prunedCount = pruneFleet(stateStore);
+if (prunedCount > 0) {
+  console.log(`[fleet] ${prunedCount} terminal(is) removido(s) do inventário (lastSeen > ${FLEET_RETENTION_DAYS} dias)`);
+}
 
 await github.refresh().catch((err) => {
   console.error("Warning: Initial GitHub fetch failed:", err.message);
