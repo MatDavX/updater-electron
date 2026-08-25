@@ -1,11 +1,11 @@
-let activeVersion: string | null = null;
+import { stateStore } from "./state-store";
 
 export function getActiveVersion(): string | null {
-  return activeVersion;
+  return stateStore.get().activeVersion;
 }
 
 export function setActiveVersion(version: string | null): void {
-  activeVersion = version;
+  stateStore.update((s) => { s.activeVersion = version; });
   if (version) {
     console.log(`[version] Active version pinned to v${version}`);
   } else {

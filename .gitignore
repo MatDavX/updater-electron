@@ -44,5 +44,8 @@ package-lock.json
 # releases binaries
 /releases/
 
+# estado persistido (emergencia, pin de versao, frota)
+/data/
+
 # env
 .env

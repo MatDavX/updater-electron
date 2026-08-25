@@ -11,9 +11,13 @@ import { versionRoutes } from "./routes/version";
 import { rateLimiter } from "./middleware/rate-limit";
 import { authGuard } from "./middleware/auth";
 import { sseBroker } from "./sse";
+import { stateStore } from "./state-store";
 
 const github = new GitHubCache();
 const storage = new Storage();
+
+await stateStore.load();
+console.log(`[state] carregado: minVersion=${stateStore.get().minVersion ?? "-"} activeVersion=${stateStore.get().activeVersion ?? "-"} fleet=${Object.keys(stateStore.get().fleet).length}`);
 
 await github.refresh().catch((err) => {
   console.error("Warning: Initial GitHub fetch failed:", err.message);
@@ -61,3 +65,10 @@ const app = new Elysia()
   .listen({ port, maxRequestBodySize: 1024 * 1024 * 512 });
 
 console.log(`Update server running at http://${app.server?.hostname}:${app.server?.port}`);
+
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, async () => {
+    await stateStore.flush();
+    process.exit(0);
+  });
+}
