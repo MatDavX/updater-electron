@@ -599,7 +599,12 @@ function buildHTML(
     async function loadFleet() {
       try {
         const res = await fetch('/api/fleet', { headers: authHeaders() });
-        if (handleAuthError(null, res)) return;
+        if (!res.ok) {
+          if (res.status === 401) {
+            document.getElementById('fleet-table').innerHTML = '<div class="empty">Informe o token para ver a frota</div>';
+          }
+          return;
+        }
         const data = await res.json();
         fleetCache = data.terminals || [];
         renderFleet();
@@ -629,8 +634,8 @@ function buildHTML(
           const dot = t.online ? '<span class="sse-dot" title="online"></span>' : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#484f58;margin-right:6px" title="offline"></span>';
           const forced = t.forcedMinVersion ? '<span class="badge badge-yellow">' + esc(t.forcedMinVersion) + '</span>' : '—';
           const action = t.forcedMinVersion
-            ? '<button class="btn btn-sm" onclick="unforceTerminal(\'' + esc(t.terminalId) + '\')">Cancelar</button>'
-            : '<button class="btn btn-danger btn-sm" onclick="forceTerminal(\'' + esc(t.terminalId) + '\',\'' + esc(t.terminalName) + '\')">Forcar</button>';
+            ? '<button class="btn btn-sm" data-action="unforce" data-id="' + esc(t.terminalId) + '">Cancelar</button>'
+            : '<button class="btn btn-danger btn-sm" data-action="force" data-id="' + esc(t.terminalId) + '" data-name="' + esc(t.terminalName) + '">Forcar</button>';
           return '<tr>' +
             '<td>' + dot + '</td>' +
             '<td><strong>' + esc(t.terminalName) + '</strong><br><span style="font-size:11px;color:#8b949e">' + esc(t.terminalId) + ' · ' + esc(t.platform) + '/' + esc(t.arch) + '</span></td>' +
@@ -638,7 +643,7 @@ function buildHTML(
             '<td><span class="badge badge-green">' + esc(t.version) + '</span></td>' +
             '<td title="' + esc(t.lastSeen) + '">' + fmtAgo(t.lastSeen) + '</td>' +
             '<td>' + forced + '</td>' +
-            '<td style="white-space:nowrap">' + action + ' <button class="btn btn-sm" onclick="removeTerminal(\'' + esc(t.terminalId) + '\')" title="remover do inventario">&times;</button></td>' +
+            '<td style="white-space:nowrap">' + action + ' <button class="btn btn-sm" data-action="remove" data-id="' + esc(t.terminalId) + '" title="remover do inventario">&times;</button></td>' +
             '</tr>';
         }).join('') + '</tbody></table>';
     }
@@ -677,9 +682,20 @@ function buildHTML(
       try {
         const res = await fetch('/api/fleet/' + encodeURIComponent(terminalId), { method: 'DELETE', headers: authHeaders() });
         if (handleAuthError(null, res)) return;
-        loadFleet();
+        const data = await res.json();
+        if (data.status === 'ok') { showToast('Terminal removido'); loadFleet(); }
+        else { showToast(data.error || 'Erro', 'error'); }
       } catch (e) { showToast('Erro de conexao', 'error'); }
     }
+
+    document.getElementById('fleet-table').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-action]');
+      if (!b) return;
+      const { action, id, name } = b.dataset;
+      if (action === 'force') forceTerminal(id, name);
+      else if (action === 'unforce') unforceTerminal(id);
+      else if (action === 'remove') removeTerminal(id);
+    });
 
     // Load version history on page load
     loadVersions();

@@ -15,5 +15,15 @@ describe("dashboardRoutes", () => {
     expect(html).toContain('id="fleet-table"');
     expect(html).toContain("Frota");
     expect(html).toContain("loadFleet()");
+
+    // Não pode reconstruir handlers de clique da frota via onclick com dados
+    // interpoláveis do servidor (heartbeat é endpoint público) — isso permite
+    // XSS armazenado, já que esc() escapa para contexto de texto/atributo
+    // HTML, não para dentro de uma string JS. Os cliques devem usar
+    // delegação de evento lendo data-* (esc() é seguro para atributo puro).
+    expect(html).not.toContain('onclick="forceTerminal(');
+    expect(html).not.toContain('onclick="unforceTerminal(');
+    expect(html).not.toContain('onclick="removeTerminal(');
+    expect(html).toContain('data-action="force"');
   });
 });
