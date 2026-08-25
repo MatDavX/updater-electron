@@ -5,6 +5,7 @@ import { authGuard } from "../middleware/auth";
 import { sseBroker } from "../sse";
 import { getActiveVersion, setActiveVersion } from "../version-control";
 import { getMinVersion, setMinVersion } from "../emergency";
+import { stateStore } from "../state-store";
 
 const ALLOWED_EXTENSIONS = [
   ".exe", ".msi", ".dmg", ".zip", ".AppImage",
@@ -195,8 +196,10 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
     })
     .delete("/emergency", () => {
       setMinVersion(null);
-      // Avisa apps abertos para fechar o modal de atualização obrigatória.
-      sseBroker.broadcast("emergency-clear", {});
+      // Avisa apps abertos para fechar o modal — exceto terminais com update
+      // forçado individual, que continuam obrigados.
+      const forced = stateStore.get().forced;
+      sseBroker.broadcast("emergency-clear", {}, { exclude: (id) => id !== null && !!forced[id] });
       return { status: "ok", minVersion: null };
     });
 }
