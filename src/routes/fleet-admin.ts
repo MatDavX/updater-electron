@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import type { StateStore } from "../state-store";
 import type { SSEBroker } from "../sse";
 import { authGuard } from "../middleware/auth";
-import { listFleet, setForced, clearForced, removeTerminal } from "../fleet";
+import { listFleet, setForced, clearForced, removeTerminal, effectiveMinVersion } from "../fleet";
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
@@ -21,6 +21,10 @@ export function fleetAdminRoutes(store: StateStore, broker: SSEBroker) {
       ({ params, body, set }) => {
         const { terminalId } = params;
         const { minVersion } = body;
+        if (!store.get().fleet[terminalId]) {
+          set.status = 404;
+          return { error: "Terminal not found" };
+        }
         if (!SEMVER.test(minVersion)) {
           set.status = 400;
           return { error: "minVersion must be x.y.z" };
@@ -36,7 +40,15 @@ export function fleetAdminRoutes(store: StateStore, broker: SSEBroker) {
     .delete("/:terminalId/force", ({ params }) => {
       const { terminalId } = params;
       clearForced(store, terminalId);
-      broker.sendTo(terminalId, "emergency-clear", {});
+      // Se ainda houver emergência GLOBAL ativa, o terminal continua
+      // obrigado a atualizar — não mandamos "emergency-clear" nesse caso,
+      // senão o modal obrigatório seria dispensado indevidamente.
+      const eff = effectiveMinVersion(store, terminalId);
+      if (eff === null) {
+        broker.sendTo(terminalId, "emergency-clear", {});
+      } else {
+        broker.sendTo(terminalId, "emergency", { minVersion: eff, version: eff });
+      }
       return { status: "ok", terminalId };
     })
     .delete("/:terminalId", ({ params, set }) => {

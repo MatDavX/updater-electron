@@ -9,8 +9,8 @@ export function authGuard() {
     );
   }
 
-  return new Elysia({ name: "auth-guard" }).onBeforeHandle(
-    ({ headers, set }) => {
+  return new Elysia({ name: "auth-guard" })
+    .onBeforeHandle(({ headers, set }) => {
       if (!secret) return;
 
       const token = headers.authorization?.replace("Bearer ", "");
@@ -18,6 +18,11 @@ export function authGuard() {
         set.status = 401;
         return { error: "Unauthorized", message: "Invalid or missing API token" };
       }
-    },
-  );
+    })
+    // `onBeforeHandle` por padrão só se aplica à própria instância do plugin
+    // e seus descendentes — não ao app pai que faz `.use(authGuard())`.
+    // `.as("scoped")` propaga o guard para o pai (mas não além dele), então
+    // rotas montadas via `.use(authGuard()).get(...)` no mesmo `Elysia()`
+    // ficam protegidas de verdade.
+    .as("scoped");
 }
