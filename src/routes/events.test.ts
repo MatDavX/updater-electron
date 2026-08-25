@@ -42,6 +42,27 @@ describe("GET /events/updates", () => {
     await res.body?.cancel();
   });
 
+  it("a second connect from the same terminalId replaces the first (uma conexão viva)", async () => {
+    const { app: a } = app();
+    const countBefore = sseBroker.count;
+
+    const first = await a.handle(new Request("http://localhost/events/updates?terminalId=t1"));
+    const second = await a.handle(new Request("http://localhost/events/updates?terminalId=t1"));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(sseBroker.isConnected("t1")).toBe(true);
+    expect(sseBroker.count).toBe(countBefore + 1);
+
+    // Cancelar a conexão NOVA basta pra deixar o terminal offline: a antiga já saiu.
+    await second.body?.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sseBroker.isConnected("t1")).toBe(false);
+    expect(sseBroker.count).toBe(countBefore);
+
+    await first.body?.cancel();
+  });
+
   it("treats a whitespace-only terminalId as absent (no fleet record)", async () => {
     const { store, app: a } = app();
     const res = await a.handle(new Request("http://localhost/events/updates?terminalId=%20%20"));

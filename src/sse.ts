@@ -3,13 +3,42 @@ type SSEClient = (message: string) => void;
 interface Subscription {
   send: SSEClient;
   terminalId: string | null;
+  onReplaced?: () => void;
 }
 
 export class SSEBroker {
   private subs = new Set<Subscription>();
 
-  subscribe(client: SSEClient, meta?: { terminalId?: string }): () => void {
-    const sub: Subscription = { send: client, terminalId: meta?.terminalId ?? null };
+  subscribe(
+    client: SSEClient,
+    meta?: { terminalId?: string; onReplaced?: () => void },
+  ): () => void {
+    const sub: Subscription = {
+      send: client,
+      terminalId: meta?.terminalId ?? null,
+      onReplaced: meta?.onReplaced,
+    };
+
+    // Uma conexão viva por terminal: TCP half-open (queda de wifi, sleep, NAT expirando)
+    // nunca faz o ping de 30s falhar na escrita, então a inscrição antiga ficaria pendurada
+    // até o kernel desistir. O PDV reconecta com o mesmo terminalId, então a conexão mais
+    // nova é a verdade — derrubamos as anteriores antes de registrar a nova.
+    // Inscrições anônimas (terminalId null) nunca se substituem.
+    if (sub.terminalId) {
+      for (const prev of [...this.subs]) {
+        if (prev.terminalId !== sub.terminalId) continue;
+        this.subs.delete(prev);
+        console.log(`[sse] Substituindo conexão anterior de ${sub.terminalId} (zumbi/reconexão)`);
+        // Avisa o dono da inscrição antiga para ele limpar o próprio keepAlive:
+        // ninguém mais vai chamar o cleanup dele (o stream morto não dispara cancel()).
+        try {
+          prev.onReplaced?.();
+        } catch {
+          // limpeza do antigo nunca pode quebrar a nova conexão
+        }
+      }
+    }
+
     this.subs.add(sub);
     console.log(`[sse] Client connected${sub.terminalId ? ` (${sub.terminalId})` : ""} (${this.subs.size} total)`);
     return () => {

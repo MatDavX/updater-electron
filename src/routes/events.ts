@@ -14,7 +14,8 @@ export function eventRoutes(store: StateStore) {
       let unsubscribe: (() => void) | null = null;
       let keepAlive: ReturnType<typeof setInterval> | null = null;
 
-      // Libera inscrição + keepAlive na hora (disconnect do client ou erro de envio).
+      // Libera inscrição + keepAlive na hora (disconnect do client, erro de envio ou
+      // substituição por uma reconexão do mesmo terminal). Idempotente: pode rodar N vezes.
       const cleanup = () => {
         if (keepAlive) {
           clearInterval(keepAlive);
@@ -39,7 +40,10 @@ export function eventRoutes(store: StateStore) {
             }
           };
 
-          unsubscribe = sseBroker.subscribe(send, { terminalId });
+          // onReplaced: se outra conexão do mesmo terminalId assumir, ninguém mais chamaria
+          // nosso cleanup (o stream zumbi não dispara cancel()) e o keepAlive ficaria
+          // pingando pra sempre num stream morto.
+          unsubscribe = sseBroker.subscribe(send, { terminalId, onReplaced: () => cleanup() });
 
           keepAlive = setInterval(() => {
             try {
