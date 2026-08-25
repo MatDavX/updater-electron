@@ -25,8 +25,18 @@ const realStateStoreExports = { ...realStateStoreModule };
 // `mock.module` reescreve as exportações do módulo já carregado — os
 // bindings ESM que outros arquivos (incluindo `api.ts`) já resolveram
 // passam a apontar para o valor mockado, então isso funciona independente
-// da ordem de execução dos arquivos de teste. Restauramos com
-// `mock.restore()` para não vazar para outros arquivos do mesmo processo.
+// da ordem de execução dos arquivos de teste.
+//
+// O `mock.restore()` no `afterAll` NÃO desfaz esse `mock.module` — no Bun
+// 1.3.10 `mock.restore()` só restaura mocks de função (`mock()`/`spyOn()`),
+// não o registro de módulos trocado por `mock.module()`. Ou seja, o mock
+// deste `stateStore` continua valendo pro resto do processo `bun test`
+// depois que este arquivo termina. Isso é inofensivo aqui porque a factory
+// espalha (`...realStateStoreExports`) todo o namespace real por cima do
+// mock — o único binding trocado é `stateStore` — e nenhum outro arquivo de
+// teste depende do singleton real `stateStore` (os que usam `StateStore`
+// instanciam a própria store isolada). Se isso mudar, este vazamento passa
+// a importar.
 let tmpDir: string;
 let testStore: StateStore;
 let apiRoutes: typeof import("./api").apiRoutes;
