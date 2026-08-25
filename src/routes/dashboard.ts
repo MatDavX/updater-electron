@@ -249,6 +249,7 @@ function buildHTML(
       <p style="font-size:13px;color:#8b949e;">
         Terminais que ja se reportaram (heartbeat no boot, a cada 30 min e ao logar). <strong>Forcar</strong> abre o modal
         de atualizacao obrigatoria so naquele terminal (se ele ja estiver na versao, nada acontece).
+        <strong>Deslogar</strong> encerra a sessao do usuario naquele terminal (aguarda fechar uma venda em andamento).
         Versoes: <span id="fleet-summary">—</span>
       </p>
       <div id="fleet-table"><div class="empty">Carregando...</div></div>
@@ -648,6 +649,10 @@ function buildHTML(
           const action = t.forcedMinVersion
             ? '<button class="btn btn-sm" data-action="unforce" data-id="' + esc(t.terminalId) + '">Cancelar</button>'
             : '<button class="btn btn-danger btn-sm" data-action="force" data-id="' + esc(t.terminalId) + '" data-name="' + esc(t.terminalName) + '">Forcar</button>';
+          // So faz sentido deslogar quem tem sessao viva (online) E alguem logado.
+          const logout = t.online && t.userEmail
+            ? ' <button class="btn btn-sm" data-action="logout" data-id="' + esc(t.terminalId) + '" data-name="' + esc(t.terminalName) + '">Deslogar</button>'
+            : '';
           return '<tr>' +
             '<td>' + dot + '</td>' +
             '<td><strong>' + esc(t.terminalName) + '</strong><br><span style="font-size:11px;color:#8b949e">' + esc(t.terminalId) + ' · ' + esc(t.platform) + '/' + esc(t.arch) + '</span></td>' +
@@ -655,7 +660,7 @@ function buildHTML(
             '<td><span class="badge badge-green">' + esc(t.version) + '</span></td>' +
             '<td title="' + esc(t.lastSeen) + '">' + fmtAgo(t.lastSeen) + '</td>' +
             '<td>' + forced + '</td>' +
-            '<td style="white-space:nowrap">' + action + ' <button class="btn btn-sm" data-action="remove" data-id="' + esc(t.terminalId) + '" title="remover do inventario">&times;</button></td>' +
+            '<td style="white-space:nowrap">' + action + logout + ' <button class="btn btn-sm" data-action="remove" data-id="' + esc(t.terminalId) + '" title="remover do inventario">&times;</button></td>' +
             '</tr>';
         }).join('') + '</tbody></table>';
     }
@@ -689,6 +694,19 @@ function buildHTML(
       } catch (e) { showToast('Erro de conexao', 'error'); }
     }
 
+    async function logoutTerminal(terminalId, name) {
+      if (!confirm('Deslogar o usuario de "' + name + '"? Se houver venda em andamento, o logout acontece ao fechar a venda.')) return;
+      try {
+        const res = await fetch('/api/fleet/' + encodeURIComponent(terminalId) + '/logout', { method: 'POST', headers: authHeaders() });
+        if (handleAuthError(null, res)) return;
+        const data = await res.json();
+        if (data.status === 'ok') {
+          showToast('Logout enviado para ' + name + (data.online ? '' : ' (offline: nada a fazer)'));
+          loadFleet();
+        } else { showToast(data.error || 'Erro', 'error'); }
+      } catch (e) { showToast('Erro de conexao', 'error'); }
+    }
+
     async function removeTerminal(terminalId) {
       if (!confirm('Remover terminal do inventario? Ele volta no proximo heartbeat.')) return;
       try {
@@ -706,6 +724,7 @@ function buildHTML(
       const { action, id, name } = b.dataset;
       if (action === 'force') forceTerminal(id, name);
       else if (action === 'unforce') unforceTerminal(id);
+      else if (action === 'logout') logoutTerminal(id, name);
       else if (action === 'remove') removeTerminal(id);
     });
 

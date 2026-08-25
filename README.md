@@ -144,6 +144,7 @@ Cada PDV envia um heartbeat (boot, a cada 30 min e ao logar) e conecta o SSE com
 | `/api/fleet` | `GET` | sim | Lista terminais (`online`, `lastSeen`, `version`, usuário, `forcedMinVersion`) |
 | `/api/fleet/:terminalId/force` | `POST` | sim | `{ minVersion }` — modal obrigatório só nesse terminal (SSE imediato se online; senão no próximo boot). `404` se o terminal não está no inventário; `400` se `minVersion` não for semver `x.y.z` |
 | `/api/fleet/:terminalId/force` | `DELETE` | sim | Cancela o forçado individual. Se ainda houver emergência global ativa, o terminal continua obrigado: recebe `emergency` com o `minVersion` global em vez de `emergency-clear` |
+| `/api/fleet/:terminalId/logout` | `POST` | sim | Envia SSE `logout` para o terminal (se online); o PDV encerra a sessão — se houver venda aberta, ao fechá-la |
 | `/api/fleet/:terminalId` | `DELETE` | sim | Remove do inventário |
 
 `DELETE /api/emergency` (global) não fecha o modal de terminais com forçado individual.

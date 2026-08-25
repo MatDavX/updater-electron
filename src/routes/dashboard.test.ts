@@ -25,6 +25,8 @@ describe("dashboardRoutes", () => {
     expect(html).not.toContain('onclick="unforceTerminal(');
     expect(html).not.toContain('onclick="removeTerminal(');
     expect(html).toContain('data-action="force"');
+    expect(html).not.toContain('onclick="logoutTerminal(');
+    expect(html).toContain('data-action="logout"');
 
     // Mesmo problema para o botão "Deletar" da tabela de arquivos locais
     // (server-side, dados vêm do nome do arquivo em disco) — precisa usar

@@ -42,6 +42,18 @@ export function fleetAdminRoutes(store: StateStore, broker: SSEBroker) {
       },
       { body: t.Object({ minVersion: t.String({ maxLength: 32 }) }) },
     )
+    .post("/:terminalId/logout", ({ params, set }) => {
+      const { terminalId } = params;
+      if (!store.get().fleet[terminalId]) {
+        set.status = 404;
+        return { error: "Terminal not found" };
+      }
+      // Nada é persistido: logout só faz sentido contra uma sessão viva. Se o
+      // terminal estiver offline, não há sessão para encerrar (no próximo boot
+      // o PDV já sobe deslogado), então não guardamos "logout pendente".
+      const delivered = broker.sendTo(terminalId, "logout", { reason: "admin" });
+      return { status: "ok", terminalId, online: delivered > 0 };
+    })
     .delete("/:terminalId/force", ({ params }) => {
       const { terminalId } = params;
       clearForced(store, terminalId);

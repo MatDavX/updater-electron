@@ -105,6 +105,33 @@ describe("/api/fleet", () => {
     expect(got[1]).toBe('event: emergency\ndata: {"minVersion":"1.3.0","version":"1.3.0"}\n\n');
   });
 
+  it("POST /:id/logout pushes SSE logout only to that terminal", async () => {
+    const { app, broker } = setup();
+    const got: string[] = [];
+    broker.subscribe((m) => got.push(m), { terminalId: "t1" });
+    const other: string[] = [];
+    broker.subscribe((m) => other.push(m), { terminalId: "t2" });
+    const res = await app.handle(new Request("http://localhost/api/fleet/t1/logout", { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ok", terminalId: "t1", online: true });
+    expect(got).toEqual(['event: logout\ndata: {"reason":"admin"}\n\n']);
+    expect(other).toHaveLength(0);
+  });
+
+  it("POST /:id/logout on an offline terminal returns online:false", async () => {
+    const { app } = setup();
+    const res = await app.handle(new Request("http://localhost/api/fleet/t1/logout", { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ok", terminalId: "t1", online: false });
+  });
+
+  it("POST /:id/logout on unknown terminal returns 404", async () => {
+    const { app } = setup();
+    const res = await app.handle(new Request("http://localhost/api/fleet/ghost/logout", { method: "POST" }));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Terminal not found" });
+  });
+
   it("DELETE /:id removes terminal from inventory", async () => {
     const { app, store } = setup();
     const res = await app.handle(new Request("http://localhost/api/fleet/t1", { method: "DELETE" }));
