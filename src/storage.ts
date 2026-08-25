@@ -66,12 +66,16 @@ export class Storage {
     const patterns = PLATFORM_PATTERNS[platform];
     if (!patterns) return null;
 
+    // Versão exata: precedida por separador (-, _, espaço) e seguida por
+    // separador ou ponto de extensão — "1.2.1" não pode casar "1.2.10".
+    const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const versionRe = new RegExp(`[-_ ]${escaped}(?=[-_ .])`);
+
     try {
       const files = await readdir(this.dir);
       const match = files.find((f) => {
-        const hasVersion = f.includes(version);
-        const matchesPlatform = patterns.some((p) => p.test(f));
-        return hasVersion && matchesPlatform;
+        if (/\.blockmap$/i.test(f)) return false;
+        return versionRe.test(f) && patterns.some((p) => p.test(f));
       });
 
       if (!match) return null;
@@ -146,10 +150,13 @@ export class Storage {
   }
 
   private async computeSha512(filePath: string): Promise<string> {
-    const file = Bun.file(filePath);
-    const buffer = await file.arrayBuffer();
+    // Stream: instaladores têm ~100 MB; carregar em arrayBuffer() dobrava a
+    // RAM por arquivo e bloqueava o event loop.
     const hash = createHash("sha512");
-    hash.update(Buffer.from(buffer));
+    const stream = Bun.file(filePath).stream();
+    for await (const chunk of stream) {
+      hash.update(chunk);
+    }
     return hash.digest("base64");
   }
 }
