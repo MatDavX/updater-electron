@@ -159,7 +159,7 @@ export class GitHubCache {
     headers.Accept = "application/octet-stream";
 
     const res = await fetch(asset.url, { headers, redirect: "follow" });
-    if (!res.ok) {
+    if (!res.ok && res.status !== 416) {
       throw new Error(`GitHub asset ${asset.name} returned ${res.status}: ${await res.text()}`);
     }
 
