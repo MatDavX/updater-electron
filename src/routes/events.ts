@@ -1,59 +1,73 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { sseBroker } from "../sse";
+import type { StateStore } from "../state-store";
+import { touchSeen } from "../fleet";
 
-export function eventRoutes() {
-  return new Elysia().get("/events/updates", () => {
-    const encoder = new TextEncoder();
+export function eventRoutes(store: StateStore) {
+  return new Elysia().get(
+    "/events/updates",
+    ({ query }) => {
+      const encoder = new TextEncoder();
+      const terminalId = query.terminalId?.trim() || undefined;
+      if (terminalId) touchSeen(store, terminalId, query.version?.trim() || undefined);
 
-    let unsubscribe: (() => void) | null = null;
-    let keepAlive: ReturnType<typeof setInterval> | null = null;
+      let unsubscribe: (() => void) | null = null;
+      let keepAlive: ReturnType<typeof setInterval> | null = null;
 
-    // Libera inscrição + keepAlive na hora (disconnect do client ou erro de envio).
-    const cleanup = () => {
-      if (keepAlive) {
-        clearInterval(keepAlive);
-        keepAlive = null;
-      }
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-    };
+      // Libera inscrição + keepAlive na hora (disconnect do client ou erro de envio).
+      const cleanup = () => {
+        if (keepAlive) {
+          clearInterval(keepAlive);
+          keepAlive = null;
+        }
+        if (unsubscribe) {
+          unsubscribe();
+          unsubscribe = null;
+        }
+      };
 
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(": connected\n\n"));
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(": connected\n\n"));
 
-        const send = (message: string) => {
-          try {
-            controller.enqueue(encoder.encode(message));
-          } catch {
-            cleanup();
-          }
-        };
+          const send = (message: string) => {
+            try {
+              controller.enqueue(encoder.encode(message));
+            } catch {
+              cleanup();
+              throw new Error("sse closed"); // faz o broker descartar a inscrição
+            }
+          };
 
-        unsubscribe = sseBroker.subscribe(send);
+          unsubscribe = sseBroker.subscribe(send, { terminalId });
 
-        keepAlive = setInterval(() => {
-          try {
-            controller.enqueue(encoder.encode(": ping\n\n"));
-          } catch {
-            cleanup();
-          }
-        }, 30_000);
-      },
-      // Disparado quando o client desconecta (fecha app, reload, restart) — limpa na hora.
-      cancel() {
-        cleanup();
-      },
-    });
+          keepAlive = setInterval(() => {
+            try {
+              controller.enqueue(encoder.encode(": ping\n\n"));
+            } catch {
+              cleanup();
+            }
+          }, 30_000);
+        },
+        // Disparado quando o client desconecta (fecha app, reload, restart) — limpa na hora.
+        cancel() {
+          cleanup();
+        },
+      });
 
-    return new Response(stream, {
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-    });
-  });
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        },
+      });
+    },
+    {
+      query: t.Object({
+        terminalId: t.Optional(t.String({ maxLength: 64 })),
+        version: t.Optional(t.String({ maxLength: 32 })),
+      }),
+    },
+  );
 }
