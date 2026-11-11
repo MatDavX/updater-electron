@@ -202,3 +202,48 @@ describe("emergência global x forçado por empresa", () => {
     }
   });
 });
+
+describe("GET /api/releases/history", () => {
+  const originalApiSecret = Bun.env.API_SECRET;
+  beforeAll(() => { delete Bun.env.API_SECRET; });
+  afterAll(() => {
+    if (originalApiSecret !== undefined) Bun.env.API_SECRET = originalApiSecret;
+  });
+
+  const notes = "n".repeat(500);
+  const releases = [
+    { version: "1.5.0", releaseDate: "2026-02-01T00:00:00Z", notes, assets: [{ name: "app-Setup-1.5.0.exe" }] },
+    { version: "1.4.0", releaseDate: "2026-01-01T00:00:00Z", notes, assets: [] },
+  ];
+  const github = {
+    getAllReleases: async () => releases,
+    getLatest: async () => releases[0],
+    findPlatformAsset: (r: { assets: { name: string }[] }) => r.assets[0] ?? null,
+  };
+  const storage = {
+    listFilesForVersion: async (v: string) =>
+      v === "1.4.0" ? [{ filename: "app-Setup-1.4.0.exe", size: 10, platform: "win32" }] : [],
+  };
+  const app = () => new Elysia().use(apiRoutes(github as never, storage as never));
+
+  it("sem query mantém o formato legado (notas cortadas em 200)", async () => {
+    const d = await (await app().handle(new Request("http://localhost/api/releases/history"))).json();
+    expect(d.releases[0].notes).toHaveLength(200);
+    expect(d.releases[0].files).toBeUndefined();
+  });
+
+  it("?full=1 traz notas completas, arquivos e flags", async () => {
+    testStore.update((s) => { s.activeVersion = "1.4.0"; });
+    try {
+      const d = await (await app().handle(new Request("http://localhost/api/releases/history?full=1"))).json();
+      expect(d.latestVersion).toBe("1.5.0");
+      expect(d.activeVersion).toBe("1.4.0");
+      expect(d.releases[0].notes).toHaveLength(500);
+      expect(d.releases[0]).toMatchObject({ isLatest: true, isActive: false, hasWindowsInstaller: true, files: [] });
+      expect(d.releases[1]).toMatchObject({ isLatest: false, isActive: true, hasWindowsInstaller: true });
+      expect(d.releases[1].files).toEqual([{ filename: "app-Setup-1.4.0.exe", size: 10, platform: "win32" }]);
+    } finally {
+      testStore.update((s) => { s.activeVersion = null; });
+    }
+  });
+});

@@ -147,19 +147,46 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
         return { error: message };
       }
     })
-    .get("/releases/history", async () => {
-      const releases = await github.getAllReleases();
-      const activeVersion = getActiveVersion();
-      return {
-        activeVersion,
-        releases: releases.map((r) => ({
-          version: r.version,
-          releaseDate: r.releaseDate,
-          notes: r.notes.substring(0, 200),
-          isActive: activeVersion ? r.version === activeVersion : false,
-        })),
-      };
-    })
+    .get(
+      "/releases/history",
+      async ({ query }) => {
+        const releases = await github.getAllReleases();
+        const activeVersion = getActiveVersion();
+
+        // Formato legado (dashboard HTML): notas cortadas em 200 caracteres.
+        if (query.full !== "1") {
+          return {
+            activeVersion,
+            releases: releases.map((r) => ({
+              version: r.version,
+              releaseDate: r.releaseDate,
+              notes: r.notes.substring(0, 200),
+              isActive: activeVersion ? r.version === activeVersion : false,
+            })),
+          };
+        }
+
+        const latestVersion = (await github.getLatest())?.version ?? null;
+        const full = await Promise.all(
+          releases.map(async (r) => {
+            const local = await storage.listFilesForVersion(r.version);
+            const hasWindowsInstaller =
+              local.some((f) => f.platform === "win32") || github.findPlatformAsset(r, "win32") !== null;
+            return {
+              version: r.version,
+              releaseDate: r.releaseDate,
+              notes: r.notes,
+              isActive: activeVersion ? r.version === activeVersion : false,
+              isLatest: r.version === latestVersion,
+              hasWindowsInstaller,
+              files: local.map((f) => ({ filename: f.filename, size: f.size, platform: f.platform })),
+            };
+          }),
+        );
+        return { activeVersion, latestVersion, releases: full };
+      },
+      { query: t.Object({ full: t.Optional(t.String({ maxLength: 8 })) }) },
+    )
     .post("/active-version", async ({ body, set }) => {
       const { version } = body as { version: string };
       if (!version) {

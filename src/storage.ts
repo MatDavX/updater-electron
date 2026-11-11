@@ -16,6 +16,15 @@ const PLATFORM_PATTERNS: Record<string, RegExp[]> = {
   linux: [/\.AppImage$/i, /\.deb$/i, /\.rpm$/i, /\.snap$/i],
 };
 
+/**
+ * Versão exata: precedida por separador (-, _, espaço) e seguida por
+ * separador ou ponto de extensão — "1.2.1" não pode casar "1.2.10".
+ */
+export function versionMatcher(version: string): RegExp {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`[-_ ]${escaped}(?=[-_ .])`);
+}
+
 export class Storage {
   private readonly dir: string;
   private metadataCache = new Map<string, FileMetadata>();
@@ -66,10 +75,7 @@ export class Storage {
     const patterns = PLATFORM_PATTERNS[platform];
     if (!patterns) return null;
 
-    // Versão exata: precedida por separador (-, _, espaço) e seguida por
-    // separador ou ponto de extensão — "1.2.1" não pode casar "1.2.10".
-    const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const versionRe = new RegExp(`[-_ ]${escaped}(?=[-_ .])`);
+    const versionRe = versionMatcher(version);
 
     try {
       const files = await readdir(this.dir);
@@ -82,6 +88,23 @@ export class Storage {
       return this.getFileMetadata(match);
     } catch {
       return null;
+    }
+  }
+
+  /** Arquivos locais da versão exata, sem `.blockmap`. */
+  async listFilesForVersion(version: string): Promise<FileMetadata[]> {
+    const versionRe = versionMatcher(version);
+    try {
+      const files = await readdir(this.dir);
+      const out: FileMetadata[] = [];
+      for (const f of files) {
+        if (/\.blockmap$/i.test(f) || !versionRe.test(f)) continue;
+        const meta = await this.getFileMetadata(f);
+        if (meta) out.push(meta);
+      }
+      return out;
+    } catch {
+      return [];
     }
   }
 

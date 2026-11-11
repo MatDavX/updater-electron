@@ -134,6 +134,10 @@ curl -X POST http://localhost:3000/refresh -H "Authorization: Bearer $API_SECRET
 # { "status": "refreshed", "version": "1.0.0" }
 ```
 
+### Histórico de versões
+
+`GET /api/releases/history` (auth) devolve as últimas 30 releases com notas cortadas em 200 caracteres (formato legado). Com `?full=1` devolve `activeVersion`, `latestVersion` e, por release, `notes` completas, `isActive`, `isLatest`, `hasWindowsInstaller` e `files` (arquivos locais da versão, sem `.blockmap`).
+
 ### Status agregado
 
 `GET /api/status` (auth) devolve `latestVersion`, `latestReleaseDate`, `activeVersion`, `servedVersion` (fixada ou a mais recente), `minVersion` (emergência global), `sseClients`, `fleet { total, online, byVersion[] }`, `forcedTerminals` e `forcedCompanies`.
