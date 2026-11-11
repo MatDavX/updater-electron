@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { resolveTokenRole } from "./auth";
 
 interface RateLimitEntry {
   count: number;
@@ -9,6 +10,8 @@ export function rateLimiter(opts?: { window?: number; max?: number }) {
   const window = opts?.window ?? (Number(Bun.env.RATE_LIMIT_WINDOW) || 60_000);
   const max = opts?.max ?? (Number(Bun.env.RATE_LIMIT_MAX) || 100);
   const store = new Map<string, RateLimitEntry>();
+  const secret = Bun.env.API_SECRET;
+  const webSecret = Bun.env.WEB_API_SECRET;
 
   setInterval(() => {
     const now = Date.now();
@@ -19,6 +22,10 @@ export function rateLimiter(opts?: { window?: number; max?: number }) {
 
   return new Elysia({ name: "rate-limiter" })
     .onBeforeHandle(({ headers, set }) => {
+      // Chamadas com token válido (admin/web) não contam: o papaya-web sai de
+      // um IP só. Token inválido continua contando.
+      if (resolveTokenRole(headers.authorization, secret, webSecret) !== null) return;
+
       const ip =
         headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
         headers["x-real-ip"] ??
