@@ -6,6 +6,17 @@ import type { StateStore, FleetRecord, ForcedEntry } from "./state-store";
 // não deixar `state.json` crescer sem limite (frota nunca "esquece"
 // terminais desativados/trocados sem isso).
 export const MAX_FLEET_TERMINALS = 2000;
+/** Teto de empresas com exigência própria (evita o state.json crescer sem limite). */
+export const MAX_FORCED_COMPANIES = 5000;
+
+/**
+ * Leitura só de chave própria: `forced`/`forcedCompanies` são objetos comuns e
+ * `companyId`/`terminalId` vêm do heartbeat público — sem isso "constructor"
+ * ou "toString" achariam uma propriedade do protótipo.
+ */
+function own<T>(map: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(map, key) ? map[key] : undefined;
+}
 export const FLEET_RETENTION_DAYS = 90;
 
 export interface HeartbeatInput {
@@ -77,7 +88,9 @@ export function upsertHeartbeat(store: StateStore, input: HeartbeatInput, now: D
       lastSeen: iso,
     };
     if (input.companyId) rec.companyId = input.companyId;
-    const lastCompanyId = input.companyId ?? prev?.lastCompanyId;
+    // `prev?.companyId`: registro gravado antes do lastCompanyId existir — sem
+    // isso o 1º heartbeat deslogado depois do deploy soltaria a empresa.
+    const lastCompanyId = input.companyId ?? prev?.lastCompanyId ?? prev?.companyId;
     if (lastCompanyId) rec.lastCompanyId = lastCompanyId;
     if (input.unitId) rec.unitId = input.unitId;
     if (input.userId) rec.userId = input.userId;
@@ -144,8 +157,8 @@ export function listFleet(
       return {
         ...r,
         online: isOnline(r.terminalId),
-        forcedMinVersion: s.forced[r.terminalId]?.minVersion ?? null,
-        companyForcedMinVersion: company ? s.forcedCompanies[company]?.minVersion ?? null : null,
+        forcedMinVersion: own(s.forced, r.terminalId)?.minVersion ?? null,
+        companyForcedMinVersion: company ? own(s.forcedCompanies, company)?.minVersion ?? null : null,
         effectiveMinVersion: effectiveMinVersion(store, r.terminalId),
       };
     })
@@ -162,7 +175,7 @@ export function setForced(store: StateStore, terminalId: string, minVersion: str
 export function clearForced(store: StateStore, terminalId: string): boolean {
   let removed = false;
   store.update((s) => {
-    if (s.forced[terminalId]) {
+    if (own(s.forced, terminalId)) {
       delete s.forced[terminalId];
       removed = true;
     }
@@ -203,8 +216,8 @@ export function effectiveMinVersion(store: StateStore, terminalId: string | null
   const company = terminalId ? companyKeyOf(s.fleet[terminalId]) : null;
   const candidates = [
     s.minVersion,
-    terminalId ? s.forced[terminalId]?.minVersion ?? null : null,
-    company ? s.forcedCompanies[company]?.minVersion ?? null : null,
+    terminalId ? own(s.forced, terminalId)?.minVersion ?? null : null,
+    company ? own(s.forcedCompanies, company)?.minVersion ?? null : null,
   ].filter((v): v is string => !!v);
   if (candidates.length === 0) return null;
   return candidates.reduce((max, v) => (compareVersions(v, max) > 0 ? v : max));
@@ -214,9 +227,9 @@ export function effectiveMinVersion(store: StateStore, terminalId: string | null
 export function hasScopedForce(store: StateStore, terminalId: string | null): boolean {
   if (!terminalId) return false;
   const s = store.get();
-  if (s.forced[terminalId]) return true;
+  if (own(s.forced, terminalId)) return true;
   const company = companyKeyOf(s.fleet[terminalId]);
-  return !!company && !!s.forcedCompanies[company];
+  return !!company && !!own(s.forcedCompanies, company);
 }
 
 export function terminalsOfCompany(store: StateStore, companyId: string): string[] {
@@ -235,7 +248,7 @@ export function setCompanyForced(store: StateStore, companyId: string, minVersio
 export function clearCompanyForced(store: StateStore, companyId: string): boolean {
   let removed = false;
   store.update((s) => {
-    if (s.forcedCompanies[companyId]) {
+    if (own(s.forcedCompanies, companyId)) {
       delete s.forcedCompanies[companyId];
       removed = true;
     }

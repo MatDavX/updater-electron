@@ -100,7 +100,8 @@ describe("DELETE /api/emergency", () => {
       expect(await res.json()).toEqual({ status: "ok", minVersion: null });
       expect(testStore.get().minVersion).toBeNull();
 
-      expect(forcedGot).toHaveLength(0);
+      // Continua obrigado, mas à própria exigência (não à global cancelada).
+      expect(forcedGot).toEqual(['event: emergency\ndata: {"minVersion":"1.5.0","version":"1.5.0"}\n\n']);
       expect(plainGot).toEqual(["event: emergency-clear\ndata: {}\n\n"]);
       expect(anonGot).toEqual(["event: emergency-clear\ndata: {}\n\n"]);
     } finally {
@@ -188,15 +189,16 @@ describe("emergência global x forçado por empresa", () => {
     }
   });
 
-  it("DELETE /api/emergency não manda emergency-clear para terminal com forçado da empresa", async () => {
+  it("DELETE /api/emergency rebaixa o terminal da empresa forçada para a exigência da empresa", async () => {
     const app = buildApp();
     seed();
-    testStore.update((s) => { s.minVersion = "1.3.0"; });
+    // Global (2.1.0) maior que a da empresa (1.5.0): o modal do PDV mostrava 2.1.0.
+    testStore.update((s) => { s.minVersion = "2.1.0"; });
     const got: string[] = [];
     const unsub = sseBroker.subscribe((m) => got.push(m), { terminalId: "tc" });
     try {
       await app.handle(new Request("http://localhost/api/emergency", { method: "DELETE" }));
-      expect(got).toHaveLength(0);
+      expect(got).toEqual(['event: emergency\ndata: {"minVersion":"1.5.0","version":"1.5.0"}\n\n']);
     } finally {
       unsub();
     }

@@ -239,7 +239,14 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
     .delete("/emergency", () => {
       setMinVersion(null);
       // Avisa apps abertos para fechar o modal — exceto terminais com update
-      // forçado individual, que continuam obrigados.
+      // forçado próprio (terminal ou empresa), que continuam obrigados, mas à
+      // exigência deles: o modal pode estar mostrando a global cancelada (que
+      // era maior), então recebem o novo efetivo.
+      for (const id of sseBroker.connectedTerminalIds().filter((i) => hasScopedForce(stateStore, i))) {
+        const eff = effectiveMinVersion(stateStore, id);
+        if (eff) sseBroker.sendTo(id, "emergency", { minVersion: eff, version: eff });
+        else sseBroker.sendTo(id, "emergency-clear", {});
+      }
       sseBroker.broadcast("emergency-clear", {}, { exclude: (id) => hasScopedForce(stateStore, id) });
       return { status: "ok", minVersion: null };
     });

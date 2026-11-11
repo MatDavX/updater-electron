@@ -3,6 +3,7 @@ import type { StateStore } from "../state-store";
 import type { SSEBroker } from "../sse";
 import { authGuard } from "../middleware/auth";
 import {
+  MAX_FORCED_COMPANIES,
   setCompanyForced,
   clearCompanyForced,
   terminalsOfCompany,
@@ -42,6 +43,11 @@ export function companyAdminRoutes(store: StateStore, broker: SSEBroker) {
         if (!SEMVER.test(minVersion)) {
           set.status = 400;
           return { error: "minVersion must be x.y.z" };
+        }
+        const forced = store.get().forcedCompanies;
+        if (!Object.hasOwn(forced, companyId) && Object.keys(forced).length >= MAX_FORCED_COMPANIES) {
+          set.status = 409;
+          return { error: `limite de ${MAX_FORCED_COMPANIES} empresas com exigência atingido` };
         }
         setCompanyForced(store, companyId, minVersion);
         const ids = terminalsOfCompany(store, companyId);

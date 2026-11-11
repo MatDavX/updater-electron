@@ -219,6 +219,28 @@ describe("forçado por empresa", () => {
     expect(effectiveMinVersion(s, "t1")).toBe("1.5.0");
   });
 
+  it("(d2) registro antigo (sem lastCompanyId) não perde a empresa no heartbeat deslogado", () => {
+    const s = mem();
+    s.update((st) => {
+      st.fleet = {
+        t1: { terminalId: "t1", terminalName: "t1", version: "1.0.0", platform: "win32", arch: "x64", companyId: "c1", firstSeen: "x", lastSeen: "x" },
+      };
+    });
+    setCompanyForced(s, "c1", "1.5.0");
+    const rec = upsertHeartbeat(s, { ...base, terminalId: "t1" });
+    expect(rec.lastCompanyId).toBe("c1");
+    expect(effectiveMinVersion(s, "t1")).toBe("1.5.0");
+  });
+
+  it("(d3) companyId com nome de propriedade do protótipo não vira exigência", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t1", companyId: "constructor" });
+    upsertHeartbeat(s, { ...base, terminalId: "toString" });
+    expect(hasScopedForce(s, "t1")).toBe(false);
+    expect(hasScopedForce(s, "toString")).toBe(false);
+    expect(effectiveMinVersion(s, "t1")).toBeNull();
+  });
+
   it("(e) outra empresa não é afetada", () => {
     const s = mem();
     upsertHeartbeat(s, { ...base, terminalId: "t2", companyId: "c2" });

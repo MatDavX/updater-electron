@@ -159,7 +159,9 @@ Cada PDV envia um heartbeat (boot, a cada 30 min e ao logar) e conecta o SSE com
 | `/api/companies/:companyId/force` | `POST` | sim | `{ minVersion }` — exige a versão em todos os terminais da empresa (SSE imediato nos online; os demais pegam no boot e quando aparecerem). Responde `{ terminals, online }`; `400` se não for `x.y.z`. Não dá `404`: empresa sem terminal fica gravada |
 | `/api/companies/:companyId/force` | `DELETE` | sim | Cancela o forçado da empresa (idempotente). Terminais com exigência global ou individual continuam obrigados |
 
-A exigência efetiva de um terminal é sempre a **maior** entre a global, a individual e a da empresa. `DELETE /api/emergency` (global) não fecha o modal de terminais com forçado individual ou da empresa.
+A exigência efetiva de um terminal é sempre a **maior** entre a global, a individual e a da empresa. `DELETE /api/emergency` (global) não fecha o modal de terminais com forçado individual ou da empresa: eles recebem `emergency` com a própria exigência (que pode ser menor que a global cancelada). `POST /api/companies/:companyId/force` responde `409` acima de 5000 empresas com exigência.
+
+**Confiança na empresa do terminal:** `companyId` vem do heartbeat público, sem autenticação — o `terminalId` funciona como identificador secreto. Quem souber o `terminalId` de outro terminal pode mudar a empresa dele (e, com isso, a exigência por empresa que vale pra ele) até o próximo heartbeat logado do terminal verdadeiro. A empresa serve para exibir e direcionar exigências, nunca para autorizar nada.
 
 O estado (emergência, pin, forçados individuais, frota) fica em `DATA_DIR/state.json` e sobrevive a restarts.
 
