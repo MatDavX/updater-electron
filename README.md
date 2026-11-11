@@ -134,6 +134,10 @@ curl -X POST http://localhost:3000/refresh -H "Authorization: Bearer $API_SECRET
 # { "status": "refreshed", "version": "1.0.0" }
 ```
 
+### Status agregado
+
+`GET /api/status` (auth) devolve `latestVersion`, `latestReleaseDate`, `activeVersion`, `servedVersion` (fixada ou a mais recente), `minVersion` (emergência global), `sseClients`, `fleet { total, online, byVersion[] }`, `forcedTerminals` e `forcedCompanies`.
+
 ### Frota (inventário de terminais + update forçado)
 
 Cada PDV envia um heartbeat (boot, a cada 30 min e ao logar) e conecta o SSE com `?terminalId=`.

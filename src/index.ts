@@ -10,6 +10,7 @@ import { minVersionRoutes } from "./routes/min-version";
 import { fleetPublicRoutes } from "./routes/fleet-public";
 import { fleetAdminRoutes } from "./routes/fleet-admin";
 import { companyAdminRoutes } from "./routes/company-admin";
+import { statusRoutes } from "./routes/status";
 import { versionRoutes } from "./routes/version";
 import { rateLimiter } from "./middleware/rate-limit";
 import { authGuard, requestAuthGate } from "./middleware/auth";
@@ -63,6 +64,7 @@ const app = new Elysia()
   .use(fleetPublicRoutes(stateStore, sseBroker))
   .use(fleetAdminRoutes(stateStore, sseBroker))
   .use(companyAdminRoutes(stateStore, sseBroker))
+  .use(statusRoutes(github, stateStore, sseBroker))
   .use(versionRoutes(github, storage))
   .use(updateRoutes(github, storage))
   .use(downloadRoutes(github, storage))
