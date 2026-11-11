@@ -50,6 +50,7 @@ cp .env.example .env
 | `CACHE_TTL` | Não | Tempo de cache em ms (padrão: `900000` = 15 min) |
 | `DATA_DIR` | Não | Diretório do estado persistente (emergência, pin, frota). Padrão: ./data |
 | `API_SECRET` | Não | Token dos endpoints admin (`Authorization: Bearer <API_SECRET>`). Se vazio, `/api/*` e `/refresh` ficam ABERTOS (modo dev) |
+| `WEB_API_SECRET` | Não | Token de escopo reduzido para o papaya-web (frota, versão fixada, emergência, status e histórico). Não sobe nem apaga binário nem cria release (403). Deve ser diferente de `API_SECRET` |
 
 \* Obrigatório se o repositório for privado. Gere em: GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens (permissão `Contents: read`).
 
@@ -133,6 +134,14 @@ curl -X POST http://localhost:3000/refresh -H "Authorization: Bearer $API_SECRET
 # { "status": "refreshed", "version": "1.0.0" }
 ```
 
+### Histórico de versões
+
+`GET /api/releases/history` (auth) devolve as últimas 30 releases com notas cortadas em 200 caracteres (formato legado). Com `?full=1` devolve `activeVersion`, `latestVersion` e, por release, `notes` completas, `isActive`, `isLatest`, `hasWindowsInstaller` e `files` (arquivos locais da versão, sem `.blockmap`).
+
+### Status agregado
+
+`GET /api/status` (auth) devolve `latestVersion`, `latestReleaseDate`, `activeVersion`, `servedVersion` (fixada ou a mais recente), `minVersion` (emergência global), `sseClients`, `fleet { total, online, byVersion[] }`, `forcedTerminals` e `forcedCompanies`.
+
 ### Frota (inventário de terminais + update forçado)
 
 Cada PDV envia um heartbeat (boot, a cada 30 min e ao logar) e conecta o SSE com `?terminalId=`.
@@ -141,13 +150,18 @@ Cada PDV envia um heartbeat (boot, a cada 30 min e ao logar) e conecta o SSE com
 |------|--------|:----:|-----------|
 | `/fleet/heartbeat` | `POST` | não | `{ terminalId, terminalName, version, platform, arch, companyId?, unitId?, userId?, userName?, userEmail? }` → `204` |
 | `/min-version.json?terminalId=X` | `GET` | não | `{ "minVersion": "x.y.z" \| null }` = maior entre a emergência global e a forçada para X |
-| `/api/fleet` | `GET` | sim | Lista terminais (`online`, `lastSeen`, `version`, usuário, `forcedMinVersion`) |
+| `/api/fleet[?companyId=X]` | `GET` | sim | Lista terminais (`online`, `lastSeen`, `version`, usuário, `forcedMinVersion`, `companyForcedMinVersion`, `effectiveMinVersion`); `companyId` filtra pela empresa (atual ou última vista) |
 | `/api/fleet/:terminalId/force` | `POST` | sim | `{ minVersion }` — modal obrigatório só nesse terminal (SSE imediato se online; senão no próximo boot). `404` se o terminal não está no inventário; `400` se `minVersion` não for semver `x.y.z` |
 | `/api/fleet/:terminalId/force` | `DELETE` | sim | Cancela o forçado individual. Se ainda houver emergência global ativa, o terminal continua obrigado: recebe `emergency` com o `minVersion` global em vez de `emergency-clear` |
 | `/api/fleet/:terminalId/logout` | `POST` | sim | Envia SSE `logout` para o terminal (se online); o PDV encerra a sessão — se houver venda aberta, ao fechá-la |
 | `/api/fleet/:terminalId` | `DELETE` | sim | Remove do inventário |
+| `/api/companies/forced` | `GET` | sim | `{ companies: [{ companyId, minVersion, createdAt, terminals, online }] }` |
+| `/api/companies/:companyId/force` | `POST` | sim | `{ minVersion }` — exige a versão em todos os terminais da empresa (SSE imediato nos online; os demais pegam no boot e quando aparecerem). Responde `{ terminals, online }`; `400` se não for `x.y.z`. Não dá `404`: empresa sem terminal fica gravada |
+| `/api/companies/:companyId/force` | `DELETE` | sim | Cancela o forçado da empresa (idempotente). Terminais com exigência global ou individual continuam obrigados |
 
-`DELETE /api/emergency` (global) não fecha o modal de terminais com forçado individual.
+A exigência efetiva de um terminal é sempre a **maior** entre a global, a individual e a da empresa. `DELETE /api/emergency` (global) não fecha o modal de terminais com forçado individual ou da empresa: eles recebem `emergency` com a própria exigência (que pode ser menor que a global cancelada). `POST /api/companies/:companyId/force` responde `409` acima de 5000 empresas com exigência.
+
+**Confiança na empresa do terminal:** `companyId` vem do heartbeat público, sem autenticação — o `terminalId` funciona como identificador secreto. Quem souber o `terminalId` de outro terminal pode mudar a empresa dele (e, com isso, a exigência por empresa que vale pra ele) até o próximo heartbeat logado do terminal verdadeiro. A empresa serve para exibir e direcionar exigências, nunca para autorizar nada.
 
 O estado (emergência, pin, forçados individuais, frota) fica em `DATA_DIR/state.json` e sobrevive a restarts.
 

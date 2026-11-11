@@ -21,6 +21,9 @@ export interface FleetRecord {
   platform: string;
   arch: string;
   companyId?: string;
+  // Última empresa vista neste terminal; sobrevive ao heartbeat sem usuário
+  // (logout) para o forçado por empresa continuar valendo.
+  lastCompanyId?: string;
   unitId?: string;
   userId?: string;
   userName?: string;
@@ -33,11 +36,12 @@ export interface PersistedState {
   minVersion: string | null;
   activeVersion: string | null;
   forced: Record<string, ForcedEntry>;
+  forcedCompanies: Record<string, ForcedEntry>;
   fleet: Record<string, FleetRecord>;
 }
 
 export function defaultState(): PersistedState {
-  return { minVersion: null, activeVersion: null, forced: {}, fleet: {} };
+  return { minVersion: null, activeVersion: null, forced: {}, forcedCompanies: {}, fleet: {} };
 }
 
 export class StateStore {
@@ -61,6 +65,7 @@ export class StateStore {
       this.state = { ...defaultState(), ...raw };
       // Garante objetos mesmo se o arquivo tiver null/undefined nesses campos.
       this.state.forced = raw.forced && typeof raw.forced === "object" ? raw.forced : {};
+      this.state.forcedCompanies = raw.forcedCompanies && typeof raw.forcedCompanies === "object" ? raw.forcedCompanies : {};
       this.state.fleet = raw.fleet && typeof raw.fleet === "object" ? raw.fleet : {};
     } catch (err) {
       console.error(`[state] arquivo corrompido, usando defaults: ${err instanceof Error ? err.message : err}`);

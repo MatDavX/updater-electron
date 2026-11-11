@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { versionMatcher } from "./storage";
 
 let dir: string;
 beforeEach(async () => {
@@ -42,5 +43,22 @@ describe("Storage sha512", () => {
     const meta = await s.getFileMetadata("Papaya-PDV-9.9.9-Setup.exe");
     expect(meta?.sha512).toBe(createHash("sha512").update(content).digest("base64"));
     expect(meta?.size).toBe(content.length);
+  });
+});
+
+describe("versionMatcher / listFilesForVersion", () => {
+  it("casa versão exata e não prefixo", () => {
+    expect(versionMatcher("1.2.1").test("app-Setup-1.2.1.exe")).toBe(true);
+    expect(versionMatcher("1.2.1").test("app-Setup-1.2.10.exe")).toBe(false);
+  });
+
+  it("lista os arquivos da versão ignorando blockmap", async () => {
+    await Bun.write(join(dir, "app-Setup-1.2.1.exe"), "a");
+    await Bun.write(join(dir, "app-Setup-1.2.1.exe.blockmap"), "b");
+    await Bun.write(join(dir, "app-Setup-1.2.10.exe"), "c");
+    const s = await load();
+    const files = await s.listFilesForVersion("1.2.1");
+    expect(files.map((f) => f.filename)).toEqual(["app-Setup-1.2.1.exe"]);
+    expect(files[0].platform).toBe("win32");
   });
 });

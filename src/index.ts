@@ -9,6 +9,8 @@ import { eventRoutes } from "./routes/events";
 import { minVersionRoutes } from "./routes/min-version";
 import { fleetPublicRoutes } from "./routes/fleet-public";
 import { fleetAdminRoutes } from "./routes/fleet-admin";
+import { companyAdminRoutes } from "./routes/company-admin";
+import { statusRoutes } from "./routes/status";
 import { versionRoutes } from "./routes/version";
 import { rateLimiter } from "./middleware/rate-limit";
 import { authGuard, requestAuthGate } from "./middleware/auth";
@@ -20,7 +22,7 @@ const github = new GitHubCache();
 const storage = new Storage();
 
 await stateStore.load();
-console.log(`[state] carregado: minVersion=${stateStore.get().minVersion ?? "-"} activeVersion=${stateStore.get().activeVersion ?? "-"} fleet=${Object.keys(stateStore.get().fleet).length}`);
+console.log(`[state] carregado: minVersion=${stateStore.get().minVersion ?? "-"} activeVersion=${stateStore.get().activeVersion ?? "-"} fleet=${Object.keys(stateStore.get().fleet).length} forcedCompanies=${Object.keys(stateStore.get().forcedCompanies).length}`);
 
 const prunedCount = pruneFleet(stateStore);
 if (prunedCount > 0) {
@@ -54,13 +56,15 @@ const app = new Elysia()
   // (multipart) grave o arquivo em disco antes da checagem de auth rodar
   // (ver `requestAuthGate` em `src/middleware/auth.ts`, finding #4). Os
   // usos de `authGuard()` scoped continuam como fallback.
-  .onRequest(requestAuthGate(Bun.env.API_SECRET))
+  .onRequest(requestAuthGate(Bun.env.API_SECRET, Bun.env.WEB_API_SECRET))
   .use(rateLimiter())
   .use(dashboardRoutes(github, storage))
   .use(eventRoutes(stateStore))
   .use(minVersionRoutes(stateStore))
-  .use(fleetPublicRoutes(stateStore))
+  .use(fleetPublicRoutes(stateStore, sseBroker))
   .use(fleetAdminRoutes(stateStore, sseBroker))
+  .use(companyAdminRoutes(stateStore, sseBroker))
+  .use(statusRoutes(github, stateStore, sseBroker))
   .use(versionRoutes(github, storage))
   .use(updateRoutes(github, storage))
   .use(downloadRoutes(github, storage))

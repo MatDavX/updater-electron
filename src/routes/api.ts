@@ -6,7 +6,7 @@ import { sseBroker } from "../sse";
 import { getActiveVersion, setActiveVersion } from "../version-control";
 import { getMinVersion, setMinVersion } from "../emergency";
 import { stateStore } from "../state-store";
-import { effectiveMinVersion } from "../fleet";
+import { effectiveMinVersion, hasScopedForce } from "../fleet";
 import { SEMVER } from "../semver";
 
 const ALLOWED_EXTENSIONS = [
@@ -147,19 +147,46 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
         return { error: message };
       }
     })
-    .get("/releases/history", async () => {
-      const releases = await github.getAllReleases();
-      const activeVersion = getActiveVersion();
-      return {
-        activeVersion,
-        releases: releases.map((r) => ({
-          version: r.version,
-          releaseDate: r.releaseDate,
-          notes: r.notes.substring(0, 200),
-          isActive: activeVersion ? r.version === activeVersion : false,
-        })),
-      };
-    })
+    .get(
+      "/releases/history",
+      async ({ query }) => {
+        const releases = await github.getAllReleases();
+        const activeVersion = getActiveVersion();
+
+        // Formato legado (dashboard HTML): notas cortadas em 200 caracteres.
+        if (query.full !== "1") {
+          return {
+            activeVersion,
+            releases: releases.map((r) => ({
+              version: r.version,
+              releaseDate: r.releaseDate,
+              notes: r.notes.substring(0, 200),
+              isActive: activeVersion ? r.version === activeVersion : false,
+            })),
+          };
+        }
+
+        const latestVersion = (await github.getLatest())?.version ?? null;
+        const full = await Promise.all(
+          releases.map(async (r) => {
+            const local = await storage.listFilesForVersion(r.version);
+            const hasWindowsInstaller =
+              local.some((f) => f.platform === "win32") || github.findPlatformAsset(r, "win32") !== null;
+            return {
+              version: r.version,
+              releaseDate: r.releaseDate,
+              notes: r.notes,
+              isActive: activeVersion ? r.version === activeVersion : false,
+              isLatest: r.version === latestVersion,
+              hasWindowsInstaller,
+              files: local.map((f) => ({ filename: f.filename, size: f.size, platform: f.platform })),
+            };
+          }),
+        );
+        return { activeVersion, latestVersion, releases: full };
+      },
+      { query: t.Object({ full: t.Optional(t.String({ maxLength: 8 })) }) },
+    )
     .post("/active-version", async ({ body, set }) => {
       const { version } = body as { version: string };
       if (!version) {
@@ -200,23 +227,27 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       // no boot). Terminais com update forçado individual têm minVersion
       // EFETIVA própria (max entre global e forçada) — mandar o valor global
       // puro pra eles regrediria o que já é exigido deles (ver findings #2/#3).
-      const forced = stateStore.get().forced;
-      for (const id of Object.keys(forced)) {
-        if (!sseBroker.isConnected(id)) continue;
+      for (const id of sseBroker.connectedTerminalIds().filter((i) => hasScopedForce(stateStore, i))) {
         const eff = effectiveMinVersion(stateStore, id)!;
         sseBroker.sendTo(id, "emergency", { minVersion: eff, version: eff });
       }
       sseBroker.broadcast("emergency", { minVersion, version: version ?? minVersion }, {
-        exclude: (id) => id !== null && !!forced[id],
+        exclude: (id) => hasScopedForce(stateStore, id),
       });
       return { status: "ok", minVersion };
     })
     .delete("/emergency", () => {
       setMinVersion(null);
       // Avisa apps abertos para fechar o modal — exceto terminais com update
-      // forçado individual, que continuam obrigados.
-      const forced = stateStore.get().forced;
-      sseBroker.broadcast("emergency-clear", {}, { exclude: (id) => id !== null && !!forced[id] });
+      // forçado próprio (terminal ou empresa), que continuam obrigados, mas à
+      // exigência deles: o modal pode estar mostrando a global cancelada (que
+      // era maior), então recebem o novo efetivo.
+      for (const id of sseBroker.connectedTerminalIds().filter((i) => hasScopedForce(stateStore, i))) {
+        const eff = effectiveMinVersion(stateStore, id);
+        if (eff) sseBroker.sendTo(id, "emergency", { minVersion: eff, version: eff });
+        else sseBroker.sendTo(id, "emergency-clear", {});
+      }
+      sseBroker.broadcast("emergency-clear", {}, { exclude: (id) => hasScopedForce(stateStore, id) });
       return { status: "ok", minVersion: null };
     });
 }

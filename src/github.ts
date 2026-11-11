@@ -184,7 +184,7 @@ export class GitHubCache {
   }
 
   private async refreshAll(): Promise<void> {
-    const url = `https://api.github.com/repos/${this.account}/${this.repo}/releases?per_page=10`;
+    const url = `https://api.github.com/repos/${this.account}/${this.repo}/releases?per_page=30`;
     const headers = this.buildHeaders();
     const res = await fetch(url, { headers });
 

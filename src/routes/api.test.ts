@@ -66,6 +66,8 @@ afterEach(async () => {
   testStore.update((s) => {
     s.minVersion = null;
     s.forced = {};
+    s.forcedCompanies = {};
+    s.fleet = {};
   });
   await testStore.flush();
 });
@@ -98,7 +100,8 @@ describe("DELETE /api/emergency", () => {
       expect(await res.json()).toEqual({ status: "ok", minVersion: null });
       expect(testStore.get().minVersion).toBeNull();
 
-      expect(forcedGot).toHaveLength(0);
+      // Continua obrigado, mas à própria exigência (não à global cancelada).
+      expect(forcedGot).toEqual(['event: emergency\ndata: {"minVersion":"1.5.0","version":"1.5.0"}\n\n']);
       expect(plainGot).toEqual(["event: emergency-clear\ndata: {}\n\n"]);
       expect(anonGot).toEqual(["event: emergency-clear\ndata: {}\n\n"]);
     } finally {
@@ -155,5 +158,94 @@ describe("POST /api/emergency", () => {
     const res = await app.handle(new Request("http://localhost/api/emergency", json({ minVersion: "latest" })));
     expect(res.status).toBe(400);
     expect(testStore.get().minVersion).toBeNull();
+  });
+});
+
+describe("emergência global x forçado por empresa", () => {
+  const originalApiSecret = Bun.env.API_SECRET;
+  beforeAll(() => { delete Bun.env.API_SECRET; });
+  afterAll(() => {
+    if (originalApiSecret !== undefined) Bun.env.API_SECRET = originalApiSecret;
+  });
+
+  const seed = () =>
+    testStore.update((s) => {
+      s.forcedCompanies = { c1: { minVersion: "1.5.0", createdAt: new Date().toISOString() } };
+      s.fleet = {
+        tc: { terminalId: "tc", terminalName: "tc", version: "1.0.0", platform: "win32", arch: "x64", companyId: "c1", lastCompanyId: "c1", firstSeen: "x", lastSeen: "x" },
+      };
+    });
+
+  it("POST /api/emergency manda o efetivo (empresa) e não o global menor", async () => {
+    const app = buildApp();
+    seed();
+    const got: string[] = [];
+    const unsub = sseBroker.subscribe((m) => got.push(m), { terminalId: "tc" });
+    try {
+      await app.handle(new Request("http://localhost/api/emergency", json({ minVersion: "1.3.0" })));
+      expect(got).toEqual(['event: emergency\ndata: {"minVersion":"1.5.0","version":"1.5.0"}\n\n']);
+    } finally {
+      unsub();
+    }
+  });
+
+  it("DELETE /api/emergency rebaixa o terminal da empresa forçada para a exigência da empresa", async () => {
+    const app = buildApp();
+    seed();
+    // Global (2.1.0) maior que a da empresa (1.5.0): o modal do PDV mostrava 2.1.0.
+    testStore.update((s) => { s.minVersion = "2.1.0"; });
+    const got: string[] = [];
+    const unsub = sseBroker.subscribe((m) => got.push(m), { terminalId: "tc" });
+    try {
+      await app.handle(new Request("http://localhost/api/emergency", { method: "DELETE" }));
+      expect(got).toEqual(['event: emergency\ndata: {"minVersion":"1.5.0","version":"1.5.0"}\n\n']);
+    } finally {
+      unsub();
+    }
+  });
+});
+
+describe("GET /api/releases/history", () => {
+  const originalApiSecret = Bun.env.API_SECRET;
+  beforeAll(() => { delete Bun.env.API_SECRET; });
+  afterAll(() => {
+    if (originalApiSecret !== undefined) Bun.env.API_SECRET = originalApiSecret;
+  });
+
+  const notes = "n".repeat(500);
+  const releases = [
+    { version: "1.5.0", releaseDate: "2026-02-01T00:00:00Z", notes, assets: [{ name: "app-Setup-1.5.0.exe" }] },
+    { version: "1.4.0", releaseDate: "2026-01-01T00:00:00Z", notes, assets: [] },
+  ];
+  const github = {
+    getAllReleases: async () => releases,
+    getLatest: async () => releases[0],
+    findPlatformAsset: (r: { assets: { name: string }[] }) => r.assets[0] ?? null,
+  };
+  const storage = {
+    listFilesForVersion: async (v: string) =>
+      v === "1.4.0" ? [{ filename: "app-Setup-1.4.0.exe", size: 10, platform: "win32" }] : [],
+  };
+  const app = () => new Elysia().use(apiRoutes(github as never, storage as never));
+
+  it("sem query mantém o formato legado (notas cortadas em 200)", async () => {
+    const d = await (await app().handle(new Request("http://localhost/api/releases/history"))).json();
+    expect(d.releases[0].notes).toHaveLength(200);
+    expect(d.releases[0].files).toBeUndefined();
+  });
+
+  it("?full=1 traz notas completas, arquivos e flags", async () => {
+    testStore.update((s) => { s.activeVersion = "1.4.0"; });
+    try {
+      const d = await (await app().handle(new Request("http://localhost/api/releases/history?full=1"))).json();
+      expect(d.latestVersion).toBe("1.5.0");
+      expect(d.activeVersion).toBe("1.4.0");
+      expect(d.releases[0].notes).toHaveLength(500);
+      expect(d.releases[0]).toMatchObject({ isLatest: true, isActive: false, hasWindowsInstaller: true, files: [] });
+      expect(d.releases[1]).toMatchObject({ isLatest: false, isActive: true, hasWindowsInstaller: true });
+      expect(d.releases[1].files).toEqual([{ filename: "app-Setup-1.4.0.exe", size: 10, platform: "win32" }]);
+    } finally {
+      testStore.update((s) => { s.activeVersion = null; });
+    }
   });
 });

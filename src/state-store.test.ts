@@ -60,3 +60,17 @@ describe("StateStore", () => {
     expect(JSON.parse(await readFile(path, "utf8")).minVersion).toBe("1.0.9");
   });
 });
+
+describe("forcedCompanies", () => {
+  it("defaultState tem forcedCompanies vazio", () => {
+    expect(defaultState().forcedCompanies).toEqual({});
+  });
+
+  it("arquivo antigo sem a chave carrega com {}", async () => {
+    const file = join(dir, "state.json");
+    await Bun.write(file, JSON.stringify({ minVersion: null, activeVersion: null, forced: {}, fleet: {} }));
+    const store = new StateStore(file);
+    await store.load();
+    expect(store.get().forcedCompanies).toEqual({});
+  });
+});
