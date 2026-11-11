@@ -6,7 +6,7 @@ import { sseBroker } from "../sse";
 import { getActiveVersion, setActiveVersion } from "../version-control";
 import { getMinVersion, setMinVersion } from "../emergency";
 import { stateStore } from "../state-store";
-import { effectiveMinVersion } from "../fleet";
+import { effectiveMinVersion, hasScopedForce } from "../fleet";
 import { SEMVER } from "../semver";
 
 const ALLOWED_EXTENSIONS = [
@@ -200,14 +200,12 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       // no boot). Terminais com update forçado individual têm minVersion
       // EFETIVA própria (max entre global e forçada) — mandar o valor global
       // puro pra eles regrediria o que já é exigido deles (ver findings #2/#3).
-      const forced = stateStore.get().forced;
-      for (const id of Object.keys(forced)) {
-        if (!sseBroker.isConnected(id)) continue;
+      for (const id of sseBroker.connectedTerminalIds().filter((i) => hasScopedForce(stateStore, i))) {
         const eff = effectiveMinVersion(stateStore, id)!;
         sseBroker.sendTo(id, "emergency", { minVersion: eff, version: eff });
       }
       sseBroker.broadcast("emergency", { minVersion, version: version ?? minVersion }, {
-        exclude: (id) => id !== null && !!forced[id],
+        exclude: (id) => hasScopedForce(stateStore, id),
       });
       return { status: "ok", minVersion };
     })
@@ -215,8 +213,7 @@ export function apiRoutes(github: GitHubCache, storage: Storage) {
       setMinVersion(null);
       // Avisa apps abertos para fechar o modal — exceto terminais com update
       // forçado individual, que continuam obrigados.
-      const forced = stateStore.get().forced;
-      sseBroker.broadcast("emergency-clear", {}, { exclude: (id) => id !== null && !!forced[id] });
+      sseBroker.broadcast("emergency-clear", {}, { exclude: (id) => hasScopedForce(stateStore, id) });
       return { status: "ok", minVersion: null };
     });
 }

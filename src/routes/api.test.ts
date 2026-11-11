@@ -66,6 +66,8 @@ afterEach(async () => {
   testStore.update((s) => {
     s.minVersion = null;
     s.forced = {};
+    s.forcedCompanies = {};
+    s.fleet = {};
   });
   await testStore.flush();
 });
@@ -155,5 +157,48 @@ describe("POST /api/emergency", () => {
     const res = await app.handle(new Request("http://localhost/api/emergency", json({ minVersion: "latest" })));
     expect(res.status).toBe(400);
     expect(testStore.get().minVersion).toBeNull();
+  });
+});
+
+describe("emergência global x forçado por empresa", () => {
+  const originalApiSecret = Bun.env.API_SECRET;
+  beforeAll(() => { delete Bun.env.API_SECRET; });
+  afterAll(() => {
+    if (originalApiSecret !== undefined) Bun.env.API_SECRET = originalApiSecret;
+  });
+
+  const seed = () =>
+    testStore.update((s) => {
+      s.forcedCompanies = { c1: { minVersion: "1.5.0", createdAt: new Date().toISOString() } };
+      s.fleet = {
+        tc: { terminalId: "tc", terminalName: "tc", version: "1.0.0", platform: "win32", arch: "x64", companyId: "c1", lastCompanyId: "c1", firstSeen: "x", lastSeen: "x" },
+      };
+    });
+
+  it("POST /api/emergency manda o efetivo (empresa) e não o global menor", async () => {
+    const app = buildApp();
+    seed();
+    const got: string[] = [];
+    const unsub = sseBroker.subscribe((m) => got.push(m), { terminalId: "tc" });
+    try {
+      await app.handle(new Request("http://localhost/api/emergency", json({ minVersion: "1.3.0" })));
+      expect(got).toEqual(['event: emergency\ndata: {"minVersion":"1.5.0","version":"1.5.0"}\n\n']);
+    } finally {
+      unsub();
+    }
+  });
+
+  it("DELETE /api/emergency não manda emergency-clear para terminal com forçado da empresa", async () => {
+    const app = buildApp();
+    seed();
+    testStore.update((s) => { s.minVersion = "1.3.0"; });
+    const got: string[] = [];
+    const unsub = sseBroker.subscribe((m) => got.push(m), { terminalId: "tc" });
+    try {
+      await app.handle(new Request("http://localhost/api/emergency", { method: "DELETE" }));
+      expect(got).toHaveLength(0);
+    } finally {
+      unsub();
+    }
   });
 });

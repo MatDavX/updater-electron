@@ -12,9 +12,15 @@ import { SEMVER } from "../semver";
 export function fleetAdminRoutes(store: StateStore, broker: SSEBroker) {
   return new Elysia({ prefix: "/api/fleet" })
     .use(authGuard())
-    .get("/", () => ({
-      terminals: listFleet(store, (id) => broker.isConnected(id)),
-    }))
+    .get(
+      "/",
+      ({ query }) => ({
+        terminals: listFleet(store, (id) => broker.isConnected(id), {
+          companyId: query.companyId?.trim() || undefined,
+        }),
+      }),
+      { query: t.Object({ companyId: t.Optional(t.String({ maxLength: 200 })) }) },
+    )
     .post(
       "/:terminalId/force",
       ({ params, body, set }) => {

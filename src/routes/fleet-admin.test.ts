@@ -189,3 +189,16 @@ describe("GET /min-version.json", () => {
     expect(await (await app.handle(new Request("http://localhost/min-version.json"))).json()).toEqual({ minVersion: "1.3.0" });
   });
 });
+
+describe("GET /api/fleet?companyId=", () => {
+  forceOpenMode();
+
+  it("filtra por empresa", async () => {
+    const { app, store } = setup();
+    upsertHeartbeat(store, { terminalId: "ta", terminalName: "A", version: "1.0.0", platform: "win32", arch: "x64", companyId: "c1" });
+    upsertHeartbeat(store, { terminalId: "tb", terminalName: "B", version: "1.0.0", platform: "win32", arch: "x64", companyId: "c2" });
+    const res = await app.handle(new Request("http://localhost/api/fleet?companyId=c1"));
+    const data = await res.json();
+    expect(data.terminals.map((t: { terminalId: string }) => t.terminalId)).toEqual(["ta"]);
+  });
+});

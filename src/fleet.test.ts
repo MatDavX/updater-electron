@@ -180,3 +180,73 @@ describe("pruneFleet", () => {
     expect(s.get().fleet.fresh1).toBeDefined();
   });
 });
+
+import { hasScopedForce, setCompanyForced, terminalsOfCompany } from "./fleet";
+
+describe("forçado por empresa", () => {
+  const base = { terminalName: "CX", version: "1.0.0", platform: "win32", arch: "x64" };
+
+  it("(a) vale o forçado da empresa", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t1", companyId: "c1" });
+    setCompanyForced(s, "c1", "1.5.0");
+    expect(effectiveMinVersion(s, "t1")).toBe("1.5.0");
+  });
+
+  it("(b) global maior vence a empresa", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t1", companyId: "c1" });
+    setCompanyForced(s, "c1", "1.5.0");
+    s.update((st) => { st.minVersion = "1.6.0"; });
+    expect(effectiveMinVersion(s, "t1")).toBe("1.6.0");
+  });
+
+  it("(c) individual maior vence a empresa", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t1", companyId: "c1" });
+    setCompanyForced(s, "c1", "1.5.0");
+    setForced(s, "t1", "1.7.0");
+    expect(effectiveMinVersion(s, "t1")).toBe("1.7.0");
+  });
+
+  it("(d) heartbeat sem empresa mantém lastCompanyId", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t1", companyId: "c1" });
+    setCompanyForced(s, "c1", "1.5.0");
+    const rec = upsertHeartbeat(s, { ...base, terminalId: "t1" });
+    expect(rec.companyId).toBeUndefined();
+    expect(rec.lastCompanyId).toBe("c1");
+    expect(effectiveMinVersion(s, "t1")).toBe("1.5.0");
+  });
+
+  it("(e) outra empresa não é afetada", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t2", companyId: "c2" });
+    setCompanyForced(s, "c1", "1.5.0");
+    expect(effectiveMinVersion(s, "t2")).toBeNull();
+  });
+
+  it("(f) listFleet filtra por empresa e traz os campos novos", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t1", companyId: "c1" });
+    upsertHeartbeat(s, { ...base, terminalId: "t2", companyId: "c2" });
+    setCompanyForced(s, "c1", "1.5.0");
+    const list = listFleet(s, () => false, { companyId: "c1" });
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ terminalId: "t1", companyForcedMinVersion: "1.5.0", effectiveMinVersion: "1.5.0" });
+    expect(terminalsOfCompany(s, "c1")).toEqual(["t1"]);
+  });
+
+  it("(g) hasScopedForce", () => {
+    const s = mem();
+    upsertHeartbeat(s, { ...base, terminalId: "t1", companyId: "c1" });
+    upsertHeartbeat(s, { ...base, terminalId: "t2", companyId: "c2" });
+    upsertHeartbeat(s, { ...base, terminalId: "t3", companyId: "c3" });
+    setCompanyForced(s, "c1", "1.5.0");
+    setForced(s, "t2", "1.5.0");
+    expect(hasScopedForce(s, "t1")).toBe(true);
+    expect(hasScopedForce(s, "t2")).toBe(true);
+    expect(hasScopedForce(s, "t3")).toBe(false);
+    expect(hasScopedForce(s, null)).toBe(false);
+  });
+});
