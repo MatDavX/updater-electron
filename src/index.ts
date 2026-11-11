@@ -54,7 +54,7 @@ const app = new Elysia()
   // (multipart) grave o arquivo em disco antes da checagem de auth rodar
   // (ver `requestAuthGate` em `src/middleware/auth.ts`, finding #4). Os
   // usos de `authGuard()` scoped continuam como fallback.
-  .onRequest(requestAuthGate(Bun.env.API_SECRET))
+  .onRequest(requestAuthGate(Bun.env.API_SECRET, Bun.env.WEB_API_SECRET))
   .use(rateLimiter())
   .use(dashboardRoutes(github, storage))
   .use(eventRoutes(stateStore))

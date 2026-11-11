@@ -50,6 +50,7 @@ cp .env.example .env
 | `CACHE_TTL` | Não | Tempo de cache em ms (padrão: `900000` = 15 min) |
 | `DATA_DIR` | Não | Diretório do estado persistente (emergência, pin, frota). Padrão: ./data |
 | `API_SECRET` | Não | Token dos endpoints admin (`Authorization: Bearer <API_SECRET>`). Se vazio, `/api/*` e `/refresh` ficam ABERTOS (modo dev) |
+| `WEB_API_SECRET` | Não | Token de escopo reduzido para o papaya-web (frota, versão fixada, emergência, status e histórico). Não sobe nem apaga binário nem cria release (403). Deve ser diferente de `API_SECRET` |
 
 \* Obrigatório se o repositório for privado. Gere em: GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens (permissão `Contents: read`).
 
